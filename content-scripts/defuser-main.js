@@ -80,27 +80,140 @@
     } catch (e) {}
   }
 
-  // 4. Wrap window.open to disarm ad popups and streaming popunders
+  // 4. Player interaction tracking for context-aware popunder defusing
+  let lastPlayerInteractionTime = 0;
+
+  function isPlayerElement(el) {
+    if (!el || !el.closest) return false;
+    return Boolean(
+      el.closest(
+        'video, iframe, .video-container, .player-container, .video-player-container, .player-wrapper, ' +
+        '.jwplayer, .video-js, .plyr, .clappr, .dplayer, .flowplayer, ' +
+        '[class*="player" i], [id*="player" i], [class*="video" i], [id*="video" i]'
+      )
+    );
+  }
+
+  const recordPlayerAction = (e) => {
+    if (isPlayerElement(e.target)) {
+      lastPlayerInteractionTime = Date.now();
+    }
+  };
+
+  try {
+    window.addEventListener('pointerdown', recordPlayerAction, true);
+    window.addEventListener('mousedown', recordPlayerAction, true);
+    window.addEventListener('contextmenu', recordPlayerAction, true);
+    window.addEventListener('click', recordPlayerAction, true);
+  } catch (e) {}
+
+  // 5. Wrap window.open to disarm ad popups, blank popunders, and rogue redirects
+  const AD_POPUP_PATTERNS = [
+    '1xbet', 'cutt.ly', 'ufabet', 'bet365', 'sbobet', 'pgslot',
+    'popads', 'propeller', 'adsterra', 'betting', 'affiliate',
+    'casino', 'baccarat', 'slotxo', 'slot888', 'popcash', 'exoclick',
+    'juicyads', 'trafficjunky', 'hilltopads', 'clickadu', 'admaven',
+    'monetag', 'wpadmngr', 'syndication', 'doubleclick', 'adnxs'
+  ];
+
+  function isSuspiciousPopupUrl(url) {
+    if (!url || typeof url !== 'string') return true;
+    const lower = url.trim().toLowerCase();
+    if (lower === '' || lower === 'about:blank' || lower === 'about:srcdoc' || lower === 'javascript:void(0)') {
+      return true;
+    }
+    if (AD_POPUP_PATTERNS.some(p => lower.includes(p))) {
+      return true;
+    }
+    return false;
+  }
+
+  function isCrossOriginUrl(url) {
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    if (trimmed.startsWith('/') || trimmed.startsWith('#') || trimmed.startsWith('?')) return false;
+    try {
+      const parsed = new URL(trimmed, window.location.href);
+      return parsed.origin !== window.location.origin;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function createDummyWindow() {
+    return {
+      closed: false,
+      focus: () => {},
+      blur: () => {},
+      close: function () { this.closed = true; },
+      location: {
+        _href: '',
+        get href() { return this._href; },
+        set href(val) {
+          if (isSuspiciousPopupUrl(val) || isCrossOriginUrl(val)) {
+            return;
+          }
+          this._href = val;
+        },
+        replace: () => {},
+        assign: () => {}
+      },
+      document: {
+        write: () => {},
+        writeln: () => {},
+        open: function () { return this; },
+        close: () => {},
+        createElement: () => ({ style: {}, appendChild: () => {}, setAttribute: () => {} }),
+        body: { appendChild: () => {} }
+      }
+    };
+  }
+
   try {
     const origOpen = window.open;
-    const AD_POPUP_PATTERNS = [
-      '1xbet', 'cutt.ly', 'ufabet', 'bet365', 'sbobet', 'pgslot',
-      'popads', 'propeller', 'adsterra', 'betting', 'affiliate',
-      'casino', 'baccarat', 'slotxo', 'slot888'
-    ];
 
     window.open = function (url, target, features) {
+      const isPlayerActionRecent = (Date.now() - lastPlayerInteractionTime) < 2500;
+
+      // Handle blank / empty popunders (e.g. window.open('about:blank'))
+      if (!url || url === '' || url === 'about:blank' || url === 'about:srcdoc') {
+        return createDummyWindow();
+      }
+
       if (typeof url === 'string') {
         const lowerUrl = url.toLowerCase();
         const isAdPopup = AD_POPUP_PATTERNS.some(p => lowerUrl.includes(p));
         if (isAdPopup) {
           return null; // Block popunder / ad tab
         }
+
+        // Block cross-origin popups triggered during player interaction
+        if (isPlayerActionRecent && isCrossOriginUrl(url)) {
+          return createDummyWindow();
+        }
       }
+
       if (typeof origOpen === 'function') {
         return origOpen.call(window, url, target, features);
       }
-      return null;
+      return createDummyWindow();
     };
+  } catch (e) {}
+
+  // 6. Wrap HTMLAnchorElement.prototype.click to block programmatic click hijacking
+  try {
+    if (typeof HTMLAnchorElement !== 'undefined' && HTMLAnchorElement.prototype) {
+      const origAnchorClick = HTMLAnchorElement.prototype.click;
+      HTMLAnchorElement.prototype.click = function () {
+        const href = (this.href || '').trim();
+        const target = (this.target || '').toLowerCase();
+        const isPlayerActionRecent = (Date.now() - lastPlayerInteractionTime) < 2500;
+        
+        if (isSuspiciousPopupUrl(href) || (isPlayerActionRecent && (target === '_blank' || isCrossOriginUrl(href)))) {
+          return; // Block programmatic popunder anchor click
+        }
+        return origAnchorClick.apply(this, arguments);
+      };
+    }
   } catch (e) {}
 })();

@@ -153,122 +153,224 @@
     updateEnabledState(true);
   }
 
-  // Intercept click hijacking, fake play overlays, and popunders
-  document.addEventListener(
-    'click',
-    function (event) {
-      if (!isEnabled) return;
+  function isLegitimatePlayerControl(el) {
+    if (!el) return false;
+    const cls = String(el.className || '') + ' ' + String(el.id || '');
+    if (/jw-flag-ads|ad-container|video-ad|ad-overlay/i.test(cls)) return false;
+    if (/vjs-control|vjs-button|jw-control|jw-display-icon|jw-icon|plyr__control|dplayer-controller|dplayer-icon|art-control/i.test(cls)) return true;
+    if (/vjs-big-play|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
+    if (el.tagName === 'VIDEO' || el.tagName === 'TRACK') return true;
+    return false;
+  }
 
-      const target = event.target;
-      if (!target) return;
+  function findTrapOrOverlay(target) {
+    if (!target || target === document.body || target === document.documentElement) return null;
+    if (target.tagName === 'VIDEO' || isLegitimatePlayerControl(target)) return null;
+    if (target._supershieldDisarmed) return { overlay: target, video: null, iframe: null };
 
-      // 1. Check for Fake Play Button / Transparent Click-Jacking Overlays on top of video OR iframe player
-      const playerContainer = target.closest(
-        '.video-container, .video-player-container, .video-player-box, .player-wrapper, ' +
-        '.jwplayer, .video-js, .plyr, .clappr, .dplayer, .flowplayer, ' +
-        '[class*="player" i], [id*="player" i], [class*="video" i], [id*="video" i]'
-      );
-      if (playerContainer) {
-        const video = playerContainer.querySelector('video');
-        const iframe = playerContainer.querySelector('iframe');
-        const mediaTarget = video || iframe;
+    // 1. Inside a Player Container
+    const playerContainer = target.closest(
+      '.video-container, .video-player-container, .video-player-box, .player-wrapper, ' +
+      '.jwplayer, .video-js, .plyr, .clappr, .dplayer, .flowplayer, ' +
+      '[class*="player" i], [id*="player" i], [class*="video" i], [id*="video" i]'
+    );
 
-        if (mediaTarget) {
-          // Check if clicked element is an overlay sitting on top of the video or iframe
-          const overlay = target.closest(
-            '[class*="play" i], [id*="play" i], ' +
-            '[class*="overlay" i], [id*="overlay" i], ' +
-            '[class*="fake" i], [id*="fake" i], ' +
-            '[class*="trap" i], [id*="trap" i], ' +
-            '[class*="ad-" i], [id*="ad-" i]'
-          ) || (target !== mediaTarget && (target.style.position === 'absolute' || target.style.position === 'fixed') ? target : null);
+    if (playerContainer) {
+      const video = playerContainer.querySelector('video');
+      const iframe = playerContainer.querySelector('iframe');
+      const mediaTarget = video || iframe;
 
-          if (overlay && overlay !== mediaTarget && !mediaTarget.contains(overlay)) {
-            event.preventDefault();
-            event.stopPropagation();
-            event.stopImmediatePropagation();
+      if (mediaTarget) {
+        if (target === mediaTarget) return null;
+        if (isLegitimatePlayerControl(target)) return null;
 
-            // Disarm and remove the overlay blocker
-            try { overlay.remove(); } catch (e) {}
+        const matchedOverlay = target.closest(
+          '[class*="play" i], [id*="play" i], ' +
+          '[class*="overlay" i], [id*="overlay" i], ' +
+          '[class*="fake" i], [id*="fake" i], ' +
+          '[class*="trap" i], [id*="trap" i], ' +
+          '[class*="ad-" i], [id*="ad-" i], ' +
+          '[class*="click" i], [id*="click" i]'
+        ) || ((target.style.position === 'absolute' || target.style.position === 'fixed') ? target : null)
+          || (target.tagName === 'A' ? target : null)
+          || target;
 
-            // Trigger real video playback or activate iframe
-            if (video) {
-              try {
-                const playPromise = video.play();
-                if (playPromise !== undefined) {
-                  playPromise.catch(() => {
-                    // Autoplay policy fallback: mute and play
-                    video.muted = true;
-                    video.play().catch(() => {});
-                  });
-                }
-              } catch (err) {}
-            } else if (iframe) {
-              try {
-                iframe.style.setProperty('pointer-events', 'auto', 'important');
-                iframe.focus?.();
-              } catch (e) {}
-            }
-
-            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-              chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
-            }
-            return false;
-          }
+        if (matchedOverlay && matchedOverlay !== mediaTarget && !mediaTarget.contains(matchedOverlay)) {
+          return { overlay: matchedOverlay, video, iframe, playerContainer };
         }
       }
+    }
 
-      // 2. Check for anchor links pointing to ad networks or popunders near video or iframe
-      const link = target.closest('a');
-      if (link && link.href) {
-        const isNearVideo = Boolean(
-          playerContainer ||
-          link.querySelector('video, iframe') ||
-          (link.parentElement && link.parentElement.querySelector('video, iframe'))
-        );
+    // 2. Full-page fixed/absolute click traps on body or outside player container
+    const hasMediaOnPage = Boolean(document.querySelector('video, iframe'));
+    if (hasMediaOnPage) {
+      const isFixedOrAbsolute = target.style.position === 'fixed' || target.style.position === 'absolute';
+      const isZIndexHigh = parseInt(target.style.zIndex || '0', 10) >= 10;
+      const isTrapName = /trap|overlay|click|catcher|fake|pop|mask|backdrop/i.test((target.id || '') + ' ' + (target.className || ''));
 
-        if (!isNearVideo) return;
+      if (isFixedOrAbsolute && (isZIndexHigh || isTrapName)) {
+        if (!target.querySelector('video, iframe')) {
+          const video = document.querySelector('video');
+          const iframe = document.querySelector('iframe');
+          return { overlay: target, video, iframe, playerContainer: null };
+        }
+      }
+    }
 
+    // 3. Anchor links near media pointing to ad domains or blank popunders
+    const link = target.closest('a');
+    if (link && link.href) {
+      const isNearVideo = Boolean(
+        playerContainer ||
+        link.querySelector('video, iframe') ||
+        (link.parentElement && link.parentElement.querySelector('video, iframe'))
+      );
+
+      if (isNearVideo) {
         let linkHostname = '';
         try {
           const url = new URL(link.href, window.location.href);
           linkHostname = url.hostname.toLowerCase();
         } catch (e) {
-          return;
+          return null;
         }
 
         const isKnownAdDomain = KNOWN_AD_DOMAINS.some(domain => linkHostname.includes(domain));
         const isBlankPopunder = link.target === '_blank' && linkHostname !== window.location.hostname;
 
         if (isKnownAdDomain || isBlankPopunder) {
-          event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation();
-
-          if (link.style.position === 'absolute' || link.style.position === 'fixed') {
-            try { link.remove(); } catch (e) {}
-          }
-
-          if (playerContainer) {
-            const video = playerContainer.querySelector('video');
-            if (video && typeof video.play === 'function') {
-              try { video.play(); } catch (err) {}
-            }
-          }
-
-          if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-            chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
-          }
-          return false;
+          const video = playerContainer ? playerContainer.querySelector('video') : document.querySelector('video');
+          const iframe = playerContainer ? playerContainer.querySelector('iframe') : document.querySelector('iframe');
+          return { overlay: link, video, iframe, playerContainer };
         }
       }
-    },
-    true // Capture phase to intercept before site listeners
-  );
+    }
 
-  // Expose scan function for testing / manual triggering
+    return null;
+  }
+
+  function handleOverlayEvent(event) {
+    if (!isEnabled) return;
+    const target = event.target;
+    if (!target) return;
+
+    const trapInfo = findTrapOrOverlay(target);
+    if (trapInfo) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+
+      const { overlay, video, iframe } = trapInfo;
+      if (overlay) {
+        overlay._supershieldDisarmed = true;
+        const killEvent = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          return false;
+        };
+        for (const ev of INTERCEPTED_MOUSE_EVENTS) {
+          try {
+            overlay.addEventListener(ev, killEvent, true);
+          } catch (err) {}
+        }
+        try {
+          overlay.remove();
+        } catch (e) {
+          try {
+            overlay.style.setProperty('display', 'none', 'important');
+            overlay.style.setProperty('pointer-events', 'none', 'important');
+          } catch (err) {}
+        }
+      }
+
+      // Trigger playback or activate iframe
+      if (video) {
+        try {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              video.muted = true;
+              video.play().catch(() => {});
+            });
+          }
+        } catch (err) {}
+      } else if (iframe) {
+        try {
+          iframe.style.setProperty('pointer-events', 'auto', 'important');
+          iframe.focus?.();
+          iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+          iframe.contentWindow?.postMessage('{"method":"play"}', '*');
+        } catch (e) {}
+      }
+
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
+      }
+      return false;
+    }
+  }
+
+  // Intercept all mouse, pointer, and contextmenu events in capture phase
+  const INTERCEPTED_MOUSE_EVENTS = ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'click', 'contextmenu', 'auxclick'];
+  for (const evt of INTERCEPTED_MOUSE_EVENTS) {
+    document.addEventListener(evt, handleOverlayEvent, true);
+    if (typeof window !== 'undefined') {
+      window.addEventListener(evt, handleOverlayEvent, true);
+    }
+  }
+
+  // Continuous Proactive Overlay Sweeper
+  function sweepOverlays() {
+    if (!isEnabled) return;
+
+    const containers = document.querySelectorAll(
+      '.video-container, .video-player-container, .video-player-box, .player-wrapper, ' +
+      '.jwplayer, .video-js, .plyr, .clappr, .dplayer, .flowplayer, ' +
+      '[class*="player" i], [id*="player" i], [class*="video" i], [id*="video" i]'
+    );
+
+    for (const container of containers) {
+      const media = container.querySelector('video, iframe');
+      if (!media) continue;
+
+      const overlays = container.querySelectorAll(
+        '[class*="overlay" i], [id*="overlay" i], [class*="fake" i], [id*="fake" i], ' +
+        '[class*="trap" i], [id*="trap" i], [class*="click" i], [id*="click" i], ' +
+        '[class*="ad-" i], [id*="ad-" i], a[target="_blank"]'
+      );
+
+      for (const el of overlays) {
+        if (el === media || media.contains(el) || isLegitimatePlayerControl(el)) continue;
+        try {
+          el.remove();
+        } catch (e) {
+          try {
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
+          } catch (err) {}
+        }
+      }
+    }
+
+    const hasMedia = Boolean(document.querySelector('video, iframe'));
+    if (hasMedia && document.body) {
+      const bodyChildren = Array.from(document.body.children);
+      for (const el of bodyChildren) {
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'VIDEO' || el.tagName === 'IFRAME') continue;
+        const isPositionedTrap = (el.style.position === 'fixed' || el.style.position === 'absolute') &&
+                                 (parseInt(el.style.zIndex || '0', 10) >= 10 || /trap|overlay|catcher|fake|click/i.test((el.id || '') + ' ' + (el.className || '')));
+        if (isPositionedTrap && !el.querySelector('video, iframe')) {
+          try { el.remove(); } catch (e) {}
+        }
+      }
+    }
+  }
+
+  // Expose scan functions for testing / manual triggering
   if (typeof window !== 'undefined') {
     window.scanAndHideBanners = scanAndHideBanners;
+    window.sweepOverlays = sweepOverlays;
   }
 
   if (document.readyState === 'loading') {
