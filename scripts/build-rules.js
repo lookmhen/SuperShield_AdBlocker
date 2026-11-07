@@ -52,7 +52,7 @@ https.get('https://raw.githubusercontent.com/Turtlecute33/toolz/master/src/d3hos
     const rules = [
       {
         id: 1,
-        priority: 2,
+        priority: 3,
         action: {
           type: 'redirect',
           redirect: {
@@ -66,7 +66,7 @@ https.get('https://raw.githubusercontent.com/Turtlecute33/toolz/master/src/d3hos
       },
       {
         id: 2,
-        priority: 2,
+        priority: 3,
         action: {
           type: 'redirect',
           redirect: {
@@ -83,12 +83,30 @@ https.get('https://raw.githubusercontent.com/Turtlecute33/toolz/master/src/d3hos
         priority: 2,
         action: { type: 'block' },
         condition: {
-          urlFilter: '/pagead.js',
-          resourceTypes: ['script', 'xmlhttprequest']
+          urlFilter: '*pagead.js*',
+          resourceTypes: ['script', 'xmlhttprequest', 'other', 'sub_frame']
         }
       },
       {
         id: 4,
+        priority: 2,
+        action: { type: 'block' },
+        condition: {
+          urlFilter: '*widget/ads.*',
+          resourceTypes: ['script', 'xmlhttprequest', 'other', 'sub_frame']
+        }
+      },
+      {
+        id: 5,
+        priority: 2,
+        action: { type: 'block' },
+        condition: {
+          urlFilter: '*/ads.js*',
+          resourceTypes: ['script', 'xmlhttprequest', 'other', 'sub_frame']
+        }
+      },
+      {
+        id: 6,
         priority: 2,
         action: { type: 'block' },
         condition: {
@@ -98,7 +116,7 @@ https.get('https://raw.githubusercontent.com/Turtlecute33/toolz/master/src/d3hos
       }
     ];
 
-    let currentId = 5;
+    let currentId = 7;
     for (const domain of benchmarkDomains) {
       if (domain === 'pagead2.googlesyndication.com/pagead/js/adsbygoogle.js') continue;
 
