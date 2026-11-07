@@ -126,3 +126,77 @@ test('custom filters are automatically loaded and applied on startup', () => {
 
   dom.window.close();
 });
+
+test('element picker cancels and removes UI banner when Escape key is pressed', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="target">Content</div></body></html>', { runScripts: "dangerously" });
+
+  dom.window.chrome = {
+    storage: { local: { get: (k, cb) => cb({}), set: () => {} } },
+    runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: () => {} } }
+  };
+
+  dom.window.eval(pickerCode);
+
+  dom.window.startElementPicker();
+  let banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.ok(banner, 'Picker banner must be present after starting picker');
+
+  // Trigger Escape keydown on window
+  const escEvent = new dom.window.KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true });
+  dom.window.dispatchEvent(escEvent);
+
+  banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.equal(banner, null, 'Picker banner must be removed when ESC is pressed');
+
+  dom.window.close();
+});
+
+test('element picker cancels and removes UI banner when clicking Exit button', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM('<!DOCTYPE html><html><body><div id="target">Content</div></body></html>', { runScripts: "dangerously" });
+
+  dom.window.chrome = {
+    storage: { local: { get: (k, cb) => cb({}), set: () => {} } },
+    runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: () => {} } }
+  };
+
+  dom.window.eval(pickerCode);
+
+  dom.window.startElementPicker();
+  let banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.ok(banner, 'Picker banner must be present');
+
+  const cancelBtn = dom.window.document.getElementById('supershield-cancel-picker');
+  assert.ok(cancelBtn, 'Cancel Exit button must exist');
+
+  // Simulate click on Exit button
+  const clickEvent = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true });
+  cancelBtn.dispatchEvent(clickEvent);
+
+  banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.equal(banner, null, 'Picker banner must be removed when Exit button is clicked');
+
+  dom.window.close();
+});
+
+test('element picker does NOT spawn banners inside child iframes', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM('<!DOCTYPE html><html><body><iframe></iframe></body></html>', { runScripts: "dangerously" });
+
+  const iframe = dom.window.document.querySelector('iframe');
+  const iframeWin = iframe.contentWindow;
+
+  iframeWin.chrome = {
+    storage: { local: { get: (k, cb) => cb({}), set: () => {} } },
+    runtime: { sendMessage: () => Promise.resolve(), onMessage: { addListener: () => {} } }
+  };
+
+  iframeWin.eval(pickerCode);
+  iframeWin.startElementPicker();
+
+  const banner = iframeWin.document.getElementById('supershield-picker-banner');
+  assert.equal(banner, null, 'Picker banner must NOT be created in iframe');
+
+  dom.window.close();
+});

@@ -227,10 +227,31 @@
     } catch (e) {}
   }
 
+  function isTopFrame() {
+    try {
+      return window.self === window.top;
+    } catch (e) {
+      return false;
+    }
+  }
+
   // 6. Interactive Element Picker Mode
   function startElementPicker() {
-    if (isPickerActive) return;
+    // Only the top-level window should launch the interactive picker
+    if (!isTopFrame()) {
+      return;
+    }
+
+    if (isPickerActive) {
+      stopElementPicker();
+    }
     isPickerActive = true;
+
+    // Clean up any stale banner
+    const existing = document.getElementById('supershield-picker-banner');
+    if (existing) {
+      try { existing.remove(); } catch (e) {}
+    }
 
     // Show Top Helper Banner
     pickerBanner = document.createElement('div');
@@ -243,7 +264,7 @@
       background: #1e293b !important;
       color: #f8fafc !important;
       padding: 12px 16px !important;
-      font-family: sans-serif !important;
+      font-family: system-ui, -apple-system, sans-serif !important;
       font-size: 14px !important;
       font-weight: 600 !important;
       z-index: 2147483647 !important;
@@ -252,37 +273,67 @@
       align-items: center !important;
       box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
       border-bottom: 2px solid #ef4444 !important;
+      user-select: none !important;
     `;
     pickerBanner.innerHTML = `
-      <span>🎯 <strong>Element Picker Active:</strong> Click on any fake button, banner, or rogue overlay to block it permanently.</span>
-      <button id="supershield-cancel-picker" style="background:#ef4444;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:bold;">Exit [ESC]</button>
+      <span style="pointer-events: none;">🎯 <strong>Element Picker Active:</strong> Click on any fake button, banner, or rogue overlay to block it permanently.</span>
+      <button id="supershield-cancel-picker" type="button" style="background:#ef4444 !important;color:#ffffff !important;border:none !important;padding:8px 16px !important;border-radius:6px !important;cursor:pointer !important;font-weight:bold !important;font-size:13px !important;z-index:2147483647 !important;position:relative !important;">Exit [ESC]</button>
     `;
-    document.body.appendChild(pickerBanner);
+    (document.body || document.documentElement).appendChild(pickerBanner);
 
     const cancelBtn = pickerBanner.querySelector('#supershield-cancel-picker');
     if (cancelBtn) {
-      cancelBtn.addEventListener('click', stopElementPicker);
+      const handleExit = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+        }
+        stopElementPicker();
+      };
+      cancelBtn.addEventListener('click', handleExit, true);
+      cancelBtn.addEventListener('mousedown', handleExit, true);
+      cancelBtn.addEventListener('pointerdown', handleExit, true);
     }
 
+    window.addEventListener('mouseover', onPickerMouseOver, true);
     document.addEventListener('mouseover', onPickerMouseOver, true);
+    window.addEventListener('click', onPickerClick, true);
     document.addEventListener('click', onPickerClick, true);
+    window.addEventListener('keydown', onPickerKeyDown, true);
     document.addEventListener('keydown', onPickerKeyDown, true);
+    window.addEventListener('keyup', onPickerKeyDown, true);
+    document.addEventListener('keyup', onPickerKeyDown, true);
+
+    try {
+      window.focus();
+      cancelBtn?.focus?.();
+    } catch (e) {}
   }
 
   function stopElementPicker() {
     isPickerActive = false;
     if (hoveredElement) {
-      hoveredElement.style.outline = '';
-      hoveredElement.style.backgroundColor = '';
+      try {
+        hoveredElement.style.outline = '';
+        hoveredElement.style.backgroundColor = '';
+      } catch (e) {}
       hoveredElement = null;
     }
-    if (pickerBanner) {
-      pickerBanner.remove();
-      pickerBanner = null;
+    const banners = document.querySelectorAll('#supershield-picker-banner');
+    for (const b of banners) {
+      try { b.remove(); } catch (e) {}
     }
+    pickerBanner = null;
+
+    window.removeEventListener('mouseover', onPickerMouseOver, true);
     document.removeEventListener('mouseover', onPickerMouseOver, true);
+    window.removeEventListener('click', onPickerClick, true);
     document.removeEventListener('click', onPickerClick, true);
+    window.removeEventListener('keydown', onPickerKeyDown, true);
     document.removeEventListener('keydown', onPickerKeyDown, true);
+    window.removeEventListener('keyup', onPickerKeyDown, true);
+    document.removeEventListener('keyup', onPickerKeyDown, true);
   }
 
   function onPickerMouseOver(e) {
@@ -291,19 +342,37 @@
     if (!target || target === pickerBanner || pickerBanner?.contains(target)) return;
 
     if (hoveredElement && hoveredElement !== target) {
-      hoveredElement.style.outline = '';
-      hoveredElement.style.backgroundColor = '';
+      try {
+        hoveredElement.style.outline = '';
+        hoveredElement.style.backgroundColor = '';
+      } catch (err) {}
     }
 
     hoveredElement = target;
-    target.style.outline = '3px dashed #ef4444';
-    target.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+    try {
+      target.style.outline = '3px dashed #ef4444';
+      target.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+    } catch (err) {}
   }
 
   function onPickerClick(e) {
     if (!isPickerActive) return;
     const target = e.target;
-    if (!target || target === pickerBanner || pickerBanner?.contains(target)) return;
+    if (!target) return;
+
+    // Check if clicked the cancel button or anywhere inside it
+    if (target.id === 'supershield-cancel-picker' || target.closest?.('#supershield-cancel-picker')) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      stopElementPicker();
+      return false;
+    }
+
+    // Do not pick the top helper banner itself
+    if (target === pickerBanner || pickerBanner?.contains(target)) {
+      return;
+    }
 
     e.preventDefault();
     e.stopPropagation();
@@ -315,7 +384,12 @@
   }
 
   function onPickerKeyDown(e) {
-    if (e.key === 'Escape') {
+    if (!isPickerActive) return;
+    const isEsc = e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27 || e.which === 27;
+    if (isEsc) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
       stopElementPicker();
     }
   }
@@ -324,7 +398,12 @@
   if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'START_ELEMENT_PICKER') {
-        startElementPicker();
+        if (isTopFrame()) {
+          startElementPicker();
+          sendResponse({ success: true });
+        }
+      } else if (message.type === 'STOP_ELEMENT_PICKER') {
+        stopElementPicker();
         sendResponse({ success: true });
       } else if (message.type === 'FORCE_PLAY_VIDEO') {
         const res = forcePlayVideos();
