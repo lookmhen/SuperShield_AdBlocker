@@ -47,7 +47,7 @@
     }
   }
 
-  // Load state on open
+  // Immediate initial render from local storage
   if (typeof chrome !== 'undefined' && chrome.storage?.local) {
     chrome.storage.local.get(null, (data) => {
       updateUI(data || {});
@@ -55,24 +55,71 @@
         updateSiteRules(data.customFilters);
       }
     });
-
-    // Detect active tab hostname
-    if (chrome.tabs?.query) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs && tabs[0]?.url) {
-          try {
-            const url = new URL(tabs[0].url);
-            currentHostname = url.hostname;
-            chrome.storage.local.get('customFilters', (res) => {
-              updateSiteRules(res?.customFilters);
-            });
-          } catch (e) {}
-        }
-      });
-    }
   }
 
-    // Handle toggle switch change
+  async function syncAndRenderStats() {
+    if (typeof chrome === 'undefined') return;
+
+    let storageData = {};
+    if (chrome.storage?.local) {
+      storageData = await new Promise((resolve) => {
+        chrome.storage.local.get(null, (data) => resolve(data || {}));
+      });
+    }
+
+    const stats = storageData.stats || { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
+    let dnrBlockedCount = 0;
+
+    // Retrieve network blocks via declarativeNetRequest.getMatchedRules
+    if (chrome.declarativeNetRequest?.getMatchedRules) {
+      try {
+        let activeTabId = null;
+        if (chrome.tabs?.query) {
+          const tabs = await new Promise((resolve) => {
+            chrome.tabs.query({ active: true, currentWindow: true }, resolve);
+          });
+          if (tabs && tabs[0]?.id) {
+            activeTabId = tabs[0].id;
+            try {
+              const url = new URL(tabs[0].url);
+              currentHostname = url.hostname;
+              if (storageData.customFilters) {
+                updateSiteRules(storageData.customFilters);
+              }
+            } catch (e) {}
+          }
+        }
+
+        if (activeTabId) {
+          const tabMatches = await chrome.declarativeNetRequest.getMatchedRules({ tabId: activeTabId });
+          const tabCount = tabMatches?.rulesMatchedInfo?.length || 0;
+          dnrBlockedCount = Math.max(dnrBlockedCount, tabCount);
+        }
+
+        const allMatches = await chrome.declarativeNetRequest.getMatchedRules();
+        const allCount = allMatches?.rulesMatchedInfo?.length || 0;
+        dnrBlockedCount = Math.max(dnrBlockedCount, allCount);
+      } catch (err) {}
+    }
+
+    const bestBanners = Math.max(stats.bannersBlocked || 0, dnrBlockedCount);
+    const combinedStats = {
+      bannersBlocked: bestBanners,
+      videoAdsSkipped: stats.videoAdsSkipped || 0,
+      antiAdblockDefused: stats.antiAdblockDefused || 0
+    };
+
+    if (bestBanners > (stats.bannersBlocked || 0) && chrome.storage?.local) {
+      chrome.storage.local.set({ stats: combinedStats });
+    }
+
+    updateUI({ ...storageData, stats: combinedStats });
+  }
+
+  // Initial load
+  syncAndRenderStats();
+
+  // Handle toggle switch change
   if (toggleSwitch) {
     toggleSwitch.addEventListener('change', (e) => {
       const enabled = e.target.checked;
@@ -93,12 +140,7 @@
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === 'local') {
-        chrome.storage.local.get(null, (data) => {
-          updateUI(data || {});
-          if (data?.customFilters) {
-            updateSiteRules(data.customFilters);
-          }
-        });
+        syncAndRenderStats();
       }
     });
   }
@@ -125,7 +167,7 @@
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           if (tabs && tabs[0]?.id) {
             chrome.tabs.sendMessage(tabs[0].id, { type: 'START_ELEMENT_PICKER' }, () => {
-              window.close(); // Close popup so user can click on page
+              window.close();
             });
           }
         });
@@ -142,7 +184,6 @@
         delete customFilters[currentHostname];
         chrome.storage.local.set({ customFilters }, () => {
           updateSiteRules(customFilters);
-          // Reload active tab to restore original DOM if needed
           if (chrome.tabs?.reload) {
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
               if (tabs && tabs[0]?.id) chrome.tabs.reload(tabs[0].id);

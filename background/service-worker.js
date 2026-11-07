@@ -18,18 +18,22 @@ async function updateBadge(state) {
   if (!chrome.action) return;
 
   if (!state.enabled) {
+    if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
+      await chrome.declarativeNetRequest.setExtensionActionOptions({
+        displayActionCountAsBadgeText: false
+      }).catch(() => {});
+    }
     chrome.action.setBadgeText({ text: 'OFF' });
     chrome.action.setBadgeBackgroundColor({ color: '#888888' });
-    return;
+  } else {
+    // Clear manual "OFF" text so Chrome's per-tab displayActionCountAsBadgeText takes precedence
+    chrome.action.setBadgeText({ text: '' });
+    if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
+      await chrome.declarativeNetRequest.setExtensionActionOptions({
+        displayActionCountAsBadgeText: true
+      }).catch(() => {});
+    }
   }
-
-  const total = (state.stats?.bannersBlocked || 0) +
-                (state.stats?.videoAdsSkipped || 0) +
-                (state.stats?.antiAdblockDefused || 0);
-
-  const text = total > 9999 ? '9.9k+' : total > 0 ? String(total) : '';
-  chrome.action.setBadgeText({ text });
-  chrome.action.setBadgeBackgroundColor({ color: '#1E90FF' });
 }
 
 async function syncRuleset(enabled) {
@@ -87,7 +91,6 @@ if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
       const stats = data?.stats || { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
       stats.bannersBlocked = (stats.bannersBlocked || 0) + 1;
       await storageAdapter.set({ stats });
-      await updateBadge({ enabled: true, stats });
     });
   });
 }
@@ -96,6 +99,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   handleMessage(message, storageAdapter).then(async (result) => {
     if (message.type === 'TOGGLE_ENABLED') {
       await syncRuleset(result.enabled);
+      await updateBadge(result);
       if (chrome.tabs?.query) {
         chrome.tabs.query({}, (tabs) => {
           for (const tab of tabs || []) {
@@ -106,7 +110,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       }
     }
-    await updateBadge(result);
     sendResponse(result);
   });
   return true; // Keep message channel open for async response
