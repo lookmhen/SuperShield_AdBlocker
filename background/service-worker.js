@@ -83,6 +83,23 @@ if (chrome.runtime?.onInstalled) {
   chrome.runtime.onInstalled.addListener(initServiceWorker);
 }
 
+// In-memory per-tab stats to display per-page blocked counts accurately
+const tabStats = new Map();
+
+if (chrome.tabs?.onUpdated) {
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.status === 'loading') {
+      tabStats.delete(tabId);
+    }
+  });
+}
+
+if (chrome.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    tabStats.delete(tabId);
+  });
+}
+
 // Track and count network requests blocked by declarativeNetRequest rules
 if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
   chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
@@ -96,6 +113,32 @@ if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'GET_TAB_STATS') {
+    const targetTabId = message.tabId || sender?.tab?.id;
+    const statsForTab = tabStats.get(targetTabId) || { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
+    sendResponse({ tabStats: statsForTab });
+    return true;
+  }
+
+  if (message.type === 'RESET_STATS') {
+    tabStats.clear();
+    handleMessage(message, storageAdapter).then((res) => sendResponse(res));
+    return true;
+  }
+
+  // Record per-tab stats when content scripts report blocks
+  if (sender?.tab?.id) {
+    const tabId = sender.tab.id;
+    if (!tabStats.has(tabId)) {
+      tabStats.set(tabId, { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 });
+    }
+    const current = tabStats.get(tabId);
+    const count = typeof message.count === 'number' && message.count > 0 ? message.count : 1;
+    if (message.type === 'AD_BLOCKED') current.bannersBlocked += count;
+    if (message.type === 'VIDEO_AD_SKIPPED') current.videoAdsSkipped += count;
+    if (message.type === 'ANTI_ADBLOCK_DEFUSED') current.antiAdblockDefused += count;
+  }
+
   handleMessage(message, storageAdapter).then(async (result) => {
     if (message.type === 'TOGGLE_ENABLED') {
       await syncRuleset(result.enabled);

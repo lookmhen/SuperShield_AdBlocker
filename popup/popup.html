@@ -44,7 +44,8 @@
         <div class="card-icon">🚫</div>
         <div class="card-data">
           <span id="banners-count" class="counter">0</span>
-          <span class="label">Banners Blocked</span>
+          <span class="label">Banners (หน้านี้)</span>
+          <span class="sub-counter">ทั้งหมด: <span id="banners-total">0</span></span>
         </div>
       </div>
 
@@ -52,7 +53,8 @@
         <div class="card-icon">⚡</div>
         <div class="card-data">
           <span id="videos-count" class="counter">0</span>
-          <span class="label">Videos Skipped</span>
+          <span class="label">Videos (หน้านี้)</span>
+          <span class="sub-counter">ทั้งหมด: <span id="videos-total">0</span></span>
         </div>
       </div>
 
@@ -60,15 +62,17 @@
         <div class="card-icon">🔓</div>
         <div class="card-data">
           <span id="defused-count" class="counter">0</span>
-          <span class="label">Defused Detection</span>
+          <span class="label">Defused (หน้านี้)</span>
+          <span class="sub-counter">ทั้งหมด: <span id="defused-total">0</span></span>
         </div>
       </div>
     </section>
 
-    <!-- Site Specific Custom Rules Info -->
+    <!-- Site Specific Custom Rules & Stats Info -->
     <div id="site-rules-bar" class="site-rules-bar">
-      <span>กฎที่บล็อกเองบนเว็บนี้: <strong id="site-rules-count">0</strong></span>
+      <span>กฎบนเว็บนี้: <strong id="site-rules-count">0</strong></span>
       <button id="btn-clear-rules" class="btn-clear" style="display: none;">ล้างกฎ</button>
+      <button id="btn-reset-stats" class="btn-reset" title="รีเซ็ตสถิติสะสมทั้งหมดกลับเป็น 0">ล้างสถิติ</button>
     </div>
 
     <footer class="footer">

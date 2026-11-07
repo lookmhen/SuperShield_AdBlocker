@@ -7,14 +7,18 @@
   const bannersCount = document.getElementById('banners-count');
   const videosCount = document.getElementById('videos-count');
   const defusedCount = document.getElementById('defused-count');
+  const bannersTotal = document.getElementById('banners-total');
+  const videosTotal = document.getElementById('videos-total');
+  const defusedTotal = document.getElementById('defused-total');
   const btnForcePlay = document.getElementById('btn-force-play');
   const btnPicker = document.getElementById('btn-picker');
   const siteRulesCount = document.getElementById('site-rules-count');
   const btnClearRules = document.getElementById('btn-clear-rules');
+  const btnResetStats = document.getElementById('btn-reset-stats');
 
   let currentHostname = '';
 
-  function updateUI(state) {
+  function updateUI(state, pageStats) {
     if (!state) return;
 
     const isEnabled = state.enabled !== false;
@@ -32,10 +36,16 @@
       }
     }
 
-    const stats = state.stats || {};
-    if (bannersCount) bannersCount.textContent = (stats.bannersBlocked || 0).toLocaleString();
-    if (videosCount) videosCount.textContent = (stats.videoAdsSkipped || 0).toLocaleString();
-    if (defusedCount) defusedCount.textContent = (stats.antiAdblockDefused || 0).toLocaleString();
+    const total = state.stats || {};
+    const page = pageStats || total;
+
+    if (bannersCount) bannersCount.textContent = (page.bannersBlocked || 0).toLocaleString();
+    if (videosCount) videosCount.textContent = (page.videoAdsSkipped || 0).toLocaleString();
+    if (defusedCount) defusedCount.textContent = (page.antiAdblockDefused || 0).toLocaleString();
+
+    if (bannersTotal) bannersTotal.textContent = (total.bannersBlocked || 0).toLocaleString();
+    if (videosTotal) videosTotal.textContent = (total.videoAdsSkipped || 0).toLocaleString();
+    if (defusedTotal) defusedTotal.textContent = (total.antiAdblockDefused || 0).toLocaleString();
   }
 
   function updateSiteRules(customFilters) {
@@ -67,53 +77,85 @@
       });
     }
 
-    const stats = storageData.stats || { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
-    let dnrBlockedCount = 0;
+    const totalStats = storageData.stats || { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
+    let activeTabId = null;
 
-    // Retrieve network blocks via declarativeNetRequest.getMatchedRules
+    if (chrome.tabs?.query) {
+      const tabs = await new Promise((resolve) => {
+        chrome.tabs.query({ active: true, currentWindow: true }, resolve);
+      });
+      if (tabs && tabs[0]?.id) {
+        activeTabId = tabs[0].id;
+        try {
+          const url = new URL(tabs[0].url);
+          currentHostname = url.hostname;
+          if (storageData.customFilters) {
+            updateSiteRules(storageData.customFilters);
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 1. Get DNR network blocks for the CURRENT ACTIVE TAB only
+    let tabDnrCount = 0;
     if (chrome.declarativeNetRequest?.getMatchedRules) {
       try {
-        let activeTabId = null;
-        if (chrome.tabs?.query) {
-          const tabs = await new Promise((resolve) => {
-            chrome.tabs.query({ active: true, currentWindow: true }, resolve);
-          });
-          if (tabs && tabs[0]?.id) {
-            activeTabId = tabs[0].id;
-            try {
-              const url = new URL(tabs[0].url);
-              currentHostname = url.hostname;
-              if (storageData.customFilters) {
-                updateSiteRules(storageData.customFilters);
-              }
-            } catch (e) {}
-          }
-        }
-
         if (activeTabId) {
           const tabMatches = await chrome.declarativeNetRequest.getMatchedRules({ tabId: activeTabId });
-          const tabCount = tabMatches?.rulesMatchedInfo?.length || 0;
-          dnrBlockedCount = Math.max(dnrBlockedCount, tabCount);
+          tabDnrCount = tabMatches?.rulesMatchedInfo?.length || 0;
+        } else {
+          const allMatches = await chrome.declarativeNetRequest.getMatchedRules();
+          tabDnrCount = allMatches?.rulesMatchedInfo?.length || 0;
         }
-
-        const allMatches = await chrome.declarativeNetRequest.getMatchedRules();
-        const allCount = allMatches?.rulesMatchedInfo?.length || 0;
-        dnrBlockedCount = Math.max(dnrBlockedCount, allCount);
       } catch (err) {}
     }
 
-    const bestBanners = Math.max(stats.bannersBlocked || 0, dnrBlockedCount);
-    const combinedStats = {
-      bannersBlocked: bestBanners,
-      videoAdsSkipped: stats.videoAdsSkipped || 0,
-      antiAdblockDefused: stats.antiAdblockDefused || 0
-    };
-
-    if (bestBanners > (stats.bannersBlocked || 0) && chrome.storage?.local) {
-      chrome.storage.local.set({ stats: combinedStats });
+    // 2. Query in-memory per-tab blocks from background service worker
+    let tabContentStats = { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
+    if (activeTabId && chrome.runtime?.sendMessage) {
+      try {
+        const res = await new Promise((resolve) => {
+          let resolved = false;
+          const finish = (val) => {
+            if (!resolved) {
+              resolved = true;
+              resolve(val);
+            }
+          };
+          try {
+            const p = chrome.runtime.sendMessage({ type: 'GET_TAB_STATS', tabId: activeTabId }, finish);
+            if (p && typeof p.then === 'function') {
+              p.then(finish).catch(() => finish(null));
+            }
+          } catch (e) {
+            finish(null);
+          }
+          setTimeout(() => finish(null), 80);
+        });
+        if (res?.tabStats) {
+          tabContentStats = res.tabStats;
+        }
+      } catch (err) {}
     }
 
-    updateUI({ ...storageData, stats: combinedStats });
+    // This Page (Current Tab) stats
+    const pageStats = {
+      bannersBlocked: tabDnrCount + (tabContentStats.bannersBlocked || 0),
+      videoAdsSkipped: tabContentStats.videoAdsSkipped || 0,
+      antiAdblockDefused: tabContentStats.antiAdblockDefused || 0
+    };
+
+    // Keep total cumulative lifetime stats updated
+    let totalBanners = totalStats.bannersBlocked || 0;
+    if (pageStats.bannersBlocked > totalBanners) {
+      totalBanners = pageStats.bannersBlocked;
+      totalStats.bannersBlocked = totalBanners;
+      if (chrome.storage?.local) {
+        chrome.storage.local.set({ stats: totalStats });
+      }
+    }
+
+    updateUI({ ...storageData, stats: totalStats }, pageStats);
   }
 
   // Initial load
@@ -191,6 +233,26 @@
           }
         });
       });
+    });
+  }
+
+  // Handle Reset Lifetime Stats
+  if (btnResetStats) {
+    btnResetStats.addEventListener('click', () => {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage({ type: 'RESET_STATS' }, () => {
+          if (chrome.storage?.local) {
+            chrome.storage.local.set(
+              { stats: { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 } },
+              () => {
+                syncAndRenderStats();
+              }
+            );
+          } else {
+            syncAndRenderStats();
+          }
+        });
+      }
     });
   }
 })();

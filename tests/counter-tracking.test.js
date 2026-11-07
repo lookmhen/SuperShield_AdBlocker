@@ -76,6 +76,71 @@ test('popup.js initializes and combines DNR matched rules with stored stats', as
   dom.window.close();
 });
 
+test('popup displays 0 on a clean new tab while preserving total stats, and resets correctly on RESET_STATS', async () => {
+  const popupHtml = fs.readFileSync('popup/popup.html', 'utf8');
+  const popupJs = fs.readFileSync('popup/popup.js', 'utf8');
+  const dom = new JSDOM(popupHtml, { runScripts: "dangerously" });
+
+  let savedStorage = {
+    enabled: true,
+    stats: { bannersBlocked: 30, videoAdsSkipped: 5, antiAdblockDefused: 2 }
+  };
+
+  let sentMessages = [];
+  dom.window.chrome = {
+    storage: {
+      local: {
+        get: (keys, cb) => cb(savedStorage),
+        set: (items, cb) => {
+          Object.assign(savedStorage, items);
+          if (cb) cb();
+        }
+      },
+      onChanged: { addListener: () => {} }
+    },
+    tabs: {
+      query: (opts, cb) => cb([{ id: 202, url: 'https://clean-site.org/' }])
+    },
+    declarativeNetRequest: {
+      getMatchedRules: (opts) => {
+        // Tab 202 is clean (0 network blocks)
+        return Promise.resolve({ rulesMatchedInfo: [] });
+      }
+    },
+    runtime: {
+      sendMessage: (msg, cb) => {
+        sentMessages.push(msg);
+        if (msg.type === 'GET_TAB_STATS') {
+          if (cb) cb({ tabStats: { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 } });
+        } else if (msg.type === 'RESET_STATS') {
+          savedStorage.stats = { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
+          if (cb) cb({ stats: savedStorage.stats });
+        }
+        return Promise.resolve();
+      }
+    }
+  };
+
+  dom.window.eval(popupJs);
+  await new Promise(r => setTimeout(r, 60));
+
+  // On clean tab 202, "This Page" count must be 0, NOT stuck at 30!
+  assert.equal(dom.window.document.getElementById('banners-count').textContent, '0', 'Clean tab must show 0 banners blocked');
+  // Total counter displays lifetime 30
+  assert.equal(dom.window.document.getElementById('banners-total').textContent, '30', 'Total counter should display 30');
+
+  // Click Reset button to clear lifetime stats
+  const resetBtn = dom.window.document.getElementById('btn-reset-stats');
+  assert.ok(resetBtn !== null, 'Reset stats button should exist');
+  resetBtn.click();
+  await new Promise(r => setTimeout(r, 60));
+
+  assert.equal(dom.window.document.getElementById('banners-total').textContent, '0', 'Total counter must be 0 after reset');
+  assert.equal(savedStorage.stats.bannersBlocked, 0, 'Storage must be reset to 0');
+
+  dom.window.close();
+});
+
 test('video-blocker counts video ads intercepted even when skip button is not clicked', () => {
   const videoBlockerCode = fs.readFileSync('content-scripts/video-blocker.js', 'utf8');
   const dom = new JSDOM(`<!DOCTYPE html>

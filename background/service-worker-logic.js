@@ -40,6 +40,13 @@ export async function handleMessage(message, storage) {
       await storage.set({ stats });
       return { enabled, stats };
 
+    case 'RESET_STATS':
+      stats.bannersBlocked = 0;
+      stats.videoAdsSkipped = 0;
+      stats.antiAdblockDefused = 0;
+      await storage.set({ stats });
+      return { enabled, stats };
+
     case 'TOGGLE_ENABLED':
       const newEnabled = typeof message.enabled === 'boolean' ? message.enabled : !enabled;
       await storage.set({ enabled: newEnabled });
