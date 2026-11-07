@@ -39,6 +39,24 @@
 
   let isEnabled = true;
 
+  function isExtensionContextValid() {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime) return true;
+      const id = chrome.runtime.id;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function safeSendMessage(message) {
+    try {
+      if (isExtensionContextValid() && typeof chrome.runtime?.sendMessage === 'function') {
+        chrome.runtime.sendMessage(message).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
   function setExtensionState(active) {
     isEnabled = Boolean(active);
     if (document.documentElement) {
@@ -114,8 +132,8 @@
       }
     }
 
-    if (newlyBlocked > 0 && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: newlyBlocked }).catch(() => {});
+    if (newlyBlocked > 0) {
+      safeSendMessage({ type: 'AD_BLOCKED', count: newlyBlocked });
     }
   }
 
@@ -348,9 +366,7 @@
         } catch (e) {}
       }
 
-      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
-      }
+      safeSendMessage({ type: 'AD_BLOCKED', count: 1 });
       return false;
     }
   }
@@ -427,11 +443,15 @@
 
   let debounceTimer = null;
   const observer = new MutationObserver(() => {
+    if (!isExtensionContextValid()) {
+      observer.disconnect();
+      return;
+    }
     if (!isEnabled) return;
     if (!debounceTimer) {
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        if (isEnabled) scanAndHideBanners();
+        if (isEnabled && isExtensionContextValid()) scanAndHideBanners();
       }, 100);
     }
   });

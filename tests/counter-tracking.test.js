@@ -76,7 +76,7 @@ test('popup.js initializes and combines DNR matched rules with stored stats', as
   dom.window.close();
 });
 
-test('popup displays 0 on a clean new tab while preserving total stats, and resets correctly on RESET_STATS', async () => {
+test('popup displays 0 on a clean new tab without being stuck to old numbers from previous tabs', async () => {
   const popupHtml = fs.readFileSync('popup/popup.html', 'utf8');
   const popupJs = fs.readFileSync('popup/popup.js', 'utf8');
   const dom = new JSDOM(popupHtml, { runScripts: "dangerously" });
@@ -86,7 +86,6 @@ test('popup displays 0 on a clean new tab while preserving total stats, and rese
     stats: { bannersBlocked: 30, videoAdsSkipped: 5, antiAdblockDefused: 2 }
   };
 
-  let sentMessages = [];
   dom.window.chrome = {
     storage: {
       local: {
@@ -109,12 +108,8 @@ test('popup displays 0 on a clean new tab while preserving total stats, and rese
     },
     runtime: {
       sendMessage: (msg, cb) => {
-        sentMessages.push(msg);
         if (msg.type === 'GET_TAB_STATS') {
           if (cb) cb({ tabStats: { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 } });
-        } else if (msg.type === 'RESET_STATS') {
-          savedStorage.stats = { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
-          if (cb) cb({ stats: savedStorage.stats });
         }
         return Promise.resolve();
       }
@@ -124,19 +119,8 @@ test('popup displays 0 on a clean new tab while preserving total stats, and rese
   dom.window.eval(popupJs);
   await new Promise(r => setTimeout(r, 60));
 
-  // On clean tab 202, "This Page" count must be 0, NOT stuck at 30!
+  // On clean tab 202, count must be 0, NOT stuck at 30!
   assert.equal(dom.window.document.getElementById('banners-count').textContent, '0', 'Clean tab must show 0 banners blocked');
-  // Total counter displays lifetime 30
-  assert.equal(dom.window.document.getElementById('banners-total').textContent, '30', 'Total counter should display 30');
-
-  // Click Reset button to clear lifetime stats
-  const resetBtn = dom.window.document.getElementById('btn-reset-stats');
-  assert.ok(resetBtn !== null, 'Reset stats button should exist');
-  resetBtn.click();
-  await new Promise(r => setTimeout(r, 60));
-
-  assert.equal(dom.window.document.getElementById('banners-total').textContent, '0', 'Total counter must be 0 after reset');
-  assert.equal(savedStorage.stats.bannersBlocked, 0, 'Storage must be reset to 0');
 
   dom.window.close();
 });

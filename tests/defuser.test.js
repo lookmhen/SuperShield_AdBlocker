@@ -13,6 +13,7 @@ test('defuser-main.js stubs anti-adblock detection variables on window', () => {
   assert.equal(dom.window.isAdBlockActive, false);
   assert.ok(dom.window.adsbygoogle);
   assert.equal(typeof dom.window.adsbygoogle.push, 'function');
+  dom.window.close();
 });
 
 test('defuser-isolated.js dismisses anti-adblock modal and restores scroll', () => {
@@ -30,4 +31,5 @@ test('defuser-isolated.js dismisses anti-adblock modal and restores scroll', () 
   
   assert.equal(dom.window.document.getElementById('adblock-modal-overlay'), null);
   assert.notEqual(dom.window.document.body.style.overflow, 'hidden');
+  dom.window.close();
 });

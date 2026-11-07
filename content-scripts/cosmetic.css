@@ -38,7 +38,26 @@ html[data-supershield-active="true"] iframe[src*="googlesyndication.com"],
 html[data-supershield-active="true"] iframe[src*="adnxs.com"],
 html[data-supershield-active="true"] iframe[src*="smartadserver.com"],
 html[data-supershield-active="true"] iframe[src*="taboola.com"],
-html[data-supershield-active="true"] iframe[src*="outbrain.com"] {
+html[data-supershield-active="true"] iframe[src*="outbrain.com"],
+html[data-supershield-active="true"] ytd-ad-slot-renderer,
+html[data-supershield-active="true"] ytd-in-feed-ad-layout-renderer,
+html[data-supershield-active="true"] ytd-banner-promo-renderer,
+html[data-supershield-active="true"] ytd-promoted-sparkles-web-renderer,
+html[data-supershield-active="true"] ytd-promoted-video-renderer,
+html[data-supershield-active="true"] ytd-statement-banner-renderer,
+html[data-supershield-active="true"] ytd-mealbar-promo-renderer,
+html[data-supershield-active="true"] #masthead-ad,
+html[data-supershield-active="true"] #player-ads,
+html[data-supershield-active="true"] .ytd-action-companion-ad-renderer,
+html[data-supershield-active="true"] .ytp-ad-overlay-container,
+html[data-supershield-active="true"] .ytp-ad-message-container,
+html[data-supershield-active="true"] .ytp-ad-progress-list,
+html[data-supershield-active="true"] .ytp-ad-preview-container,
+html[data-supershield-active="true"] .ytp-ad-image-overlay,
+html[data-supershield-active="true"] .ytp-ad-text-overlay,
+html[data-supershield-active="true"] ytd-enforcement-message-view-model,
+html[data-supershield-active="true"] tp-yt-paper-dialog:has(#feedback.ytd-enforcement-message-view-model),
+html[data-supershield-active="true"] tp-yt-iron-overlay-backdrop:has(+ tp-yt-paper-dialog:has(#feedback.ytd-enforcement-message-view-model)) {
   display: none !important;
   visibility: hidden !important;
   height: 0 !important;

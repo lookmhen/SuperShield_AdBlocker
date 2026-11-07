@@ -5,6 +5,24 @@
 
   let isEnabled = true;
 
+  function isExtensionContextValid() {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime) return true;
+      const id = chrome.runtime.id;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function safeSendMessage(message) {
+    try {
+      if (isExtensionContextValid() && typeof chrome.runtime?.sendMessage === 'function') {
+        chrome.runtime.sendMessage(message).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
   function updateState(enabled) {
     isEnabled = Boolean(enabled);
     if (isEnabled) {
@@ -45,7 +63,9 @@
     '[class*="tp-backdrop"]',
     '[class*="tp-modal"]',
     '.fc-ab-root',
-    '#framer-adblock-modal'
+    '#framer-adblock-modal',
+    'ytd-enforcement-message-view-model',
+    'tp-yt-paper-dialog:has(#feedback.ytd-enforcement-message-view-model)'
   ];
 
   function dismissModals() {
@@ -69,8 +89,16 @@
       document.body.style.setProperty('overflow', 'auto', 'important');
     }
 
-    if (defusedCount > 0 && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ type: 'ANTI_ADBLOCK_DEFUSED', count: defusedCount }).catch(() => {});
+    // If YouTube modal was removed, resume video playback if paused
+    const ytVideo = document.querySelector('#movie_player video');
+    if (ytVideo && ytVideo.paused && defusedCount > 0) {
+      try {
+        ytVideo.play().catch(() => {});
+      } catch (e) {}
+    }
+
+    if (defusedCount > 0) {
+      safeSendMessage({ type: 'ANTI_ADBLOCK_DEFUSED', count: defusedCount });
     }
   }
 
@@ -80,18 +108,22 @@
   // Also run on DOMContentLoaded and observe mutations
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      if (isEnabled) dismissModals();
+      if (isEnabled && isExtensionContextValid()) dismissModals();
     });
   }
 
   // Throttle mutation observer
   let timeoutId = null;
   const observer = new MutationObserver(() => {
+    if (!isExtensionContextValid()) {
+      observer.disconnect();
+      return;
+    }
     if (!isEnabled) return;
     if (!timeoutId) {
       timeoutId = setTimeout(() => {
         timeoutId = null;
-        if (isEnabled) dismissModals();
+        if (isEnabled && isExtensionContextValid()) dismissModals();
       }, 100);
     }
   });

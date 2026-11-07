@@ -30,12 +30,12 @@
     <section class="tools-section">
       <button id="btn-force-play" class="tool-btn force-play-btn" title="Remove overlays and start video immediately">
         <span class="btn-icon">⚡</span>
-        <span class="btn-text">ปลดล็อกวิดีโอ (Force Play)</span>
+        <span class="btn-text">Force Play</span>
       </button>
 
       <button id="btn-picker" class="tool-btn picker-btn" title="Pick and block any element on this page">
         <span class="btn-icon">🎯</span>
-        <span class="btn-text">เลือกบล็อกเอง (Element Picker)</span>
+        <span class="btn-text">Element Picker</span>
       </button>
     </section>
 
@@ -44,8 +44,7 @@
         <div class="card-icon">🚫</div>
         <div class="card-data">
           <span id="banners-count" class="counter">0</span>
-          <span class="label">Banners (หน้านี้)</span>
-          <span class="sub-counter">ทั้งหมด: <span id="banners-total">0</span></span>
+          <span class="label">Banners Blocked</span>
         </div>
       </div>
 
@@ -53,8 +52,7 @@
         <div class="card-icon">⚡</div>
         <div class="card-data">
           <span id="videos-count" class="counter">0</span>
-          <span class="label">Videos (หน้านี้)</span>
-          <span class="sub-counter">ทั้งหมด: <span id="videos-total">0</span></span>
+          <span class="label">Videos Skipped</span>
         </div>
       </div>
 
@@ -62,17 +60,15 @@
         <div class="card-icon">🔓</div>
         <div class="card-data">
           <span id="defused-count" class="counter">0</span>
-          <span class="label">Defused (หน้านี้)</span>
-          <span class="sub-counter">ทั้งหมด: <span id="defused-total">0</span></span>
+          <span class="label">Defused Detection</span>
         </div>
       </div>
     </section>
 
-    <!-- Site Specific Custom Rules & Stats Info -->
+    <!-- Site Specific Custom Rules Info -->
     <div id="site-rules-bar" class="site-rules-bar">
-      <span>กฎบนเว็บนี้: <strong id="site-rules-count">0</strong></span>
-      <button id="btn-clear-rules" class="btn-clear" style="display: none;">ล้างกฎ</button>
-      <button id="btn-reset-stats" class="btn-reset" title="รีเซ็ตสถิติสะสมทั้งหมดกลับเป็น 0">ล้างสถิติ</button>
+      <span>Rules on this site: <strong id="site-rules-count">0</strong></span>
+      <button id="btn-clear-rules" class="btn-clear" style="display: none;">Clear Rules</button>
     </div>
 
     <footer class="footer">

@@ -7,6 +7,24 @@
   let hoveredElement = null;
   let pickerBanner = null;
 
+  function isExtensionContextValid() {
+    try {
+      if (typeof chrome === 'undefined' || !chrome.runtime) return true;
+      const id = chrome.runtime.id;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function safeSendMessage(message) {
+    try {
+      if (isExtensionContextValid() && typeof chrome.runtime?.sendMessage === 'function') {
+        chrome.runtime.sendMessage(message).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
   function getHostname() {
     return (window.location && window.location.hostname) ? window.location.hostname : 'localhost';
   }
@@ -90,7 +108,7 @@
         });
       });
 
-      chrome.runtime?.sendMessage?.({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
+      safeSendMessage({ type: 'AD_BLOCKED', count: 1 });
     } else {
       showNotification(`Blocked: ${selector}`);
     }
@@ -349,8 +367,8 @@
 
     if (unlocked) {
       showNotification('⚡ Video Player Unlocked & Forced Play!');
-      if (removedCount > 0 && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: removedCount }).catch(() => {});
+      if (removedCount > 0) {
+        safeSendMessage({ type: 'AD_BLOCKED', count: removedCount });
       }
     } else {
       showNotification('⚠️ No video player found on this page');

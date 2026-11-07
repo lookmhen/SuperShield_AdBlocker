@@ -10,6 +10,7 @@ test('manifest.json has required Manifest V3 fields and correct structure', () =
   assert.ok(manifest.version);
   assert.ok(manifest.permissions.includes('declarativeNetRequest'));
   assert.ok(manifest.permissions.includes('storage'));
+  assert.equal(manifest.background.type, 'module', 'Background service worker must have type: module for ES imports');
   assert.ok(manifest.declarative_net_request.rule_resources.length > 0);
   assert.ok(manifest.web_accessible_resources.length > 0);
 });

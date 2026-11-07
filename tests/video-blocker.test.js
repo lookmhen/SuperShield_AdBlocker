@@ -67,3 +67,37 @@ test('video-blocker handles generic HTML5 video ad and clicks universal skip but
   assert.equal(clicked, true);
   dom.window.close();
 });
+
+test('video-blocker safely handles Extension context invalidated without throwing unhandled exceptions', () => {
+  const videoBlockerCode = fs.readFileSync('content-scripts/video-blocker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="movie_player" class="html5-video-player ad-showing">
+          <video id="yt-video"></video>
+        </div>
+      </body>
+    </html>`, { runScripts: "dangerously" });
+
+  // Simulate invalidated extension context where chrome.runtime.id throws or sendMessage throws synchronously
+  dom.window.chrome = {
+    runtime: {
+      get id() {
+        throw new Error('Extension context invalidated.');
+      },
+      sendMessage: () => {
+        throw new Error('Extension context invalidated.');
+      }
+    }
+  };
+
+  const video = dom.window.document.getElementById('yt-video');
+  Object.defineProperty(video, 'duration', { value: 30, configurable: true, writable: true });
+
+  assert.doesNotThrow(() => {
+    dom.window.eval(videoBlockerCode);
+    video.dispatchEvent(new dom.window.Event('timeupdate'));
+  });
+
+  dom.window.close();
+});

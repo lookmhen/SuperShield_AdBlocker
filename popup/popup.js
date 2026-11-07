@@ -7,14 +7,10 @@
   const bannersCount = document.getElementById('banners-count');
   const videosCount = document.getElementById('videos-count');
   const defusedCount = document.getElementById('defused-count');
-  const bannersTotal = document.getElementById('banners-total');
-  const videosTotal = document.getElementById('videos-total');
-  const defusedTotal = document.getElementById('defused-total');
   const btnForcePlay = document.getElementById('btn-force-play');
   const btnPicker = document.getElementById('btn-picker');
   const siteRulesCount = document.getElementById('site-rules-count');
   const btnClearRules = document.getElementById('btn-clear-rules');
-  const btnResetStats = document.getElementById('btn-reset-stats');
 
   let currentHostname = '';
 
@@ -42,10 +38,6 @@
     if (bannersCount) bannersCount.textContent = (page.bannersBlocked || 0).toLocaleString();
     if (videosCount) videosCount.textContent = (page.videoAdsSkipped || 0).toLocaleString();
     if (defusedCount) defusedCount.textContent = (page.antiAdblockDefused || 0).toLocaleString();
-
-    if (bannersTotal) bannersTotal.textContent = (total.bannersBlocked || 0).toLocaleString();
-    if (videosTotal) videosTotal.textContent = (total.videoAdsSkipped || 0).toLocaleString();
-    if (defusedTotal) defusedTotal.textContent = (total.antiAdblockDefused || 0).toLocaleString();
   }
 
   function updateSiteRules(customFilters) {
@@ -233,26 +225,6 @@
           }
         });
       });
-    });
-  }
-
-  // Handle Reset Lifetime Stats
-  if (btnResetStats) {
-    btnResetStats.addEventListener('click', () => {
-      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-        chrome.runtime.sendMessage({ type: 'RESET_STATS' }, () => {
-          if (chrome.storage?.local) {
-            chrome.storage.local.set(
-              { stats: { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 } },
-              () => {
-                syncAndRenderStats();
-              }
-            );
-          } else {
-            syncAndRenderStats();
-          }
-        });
-      }
     });
   }
 })();

@@ -216,4 +216,103 @@
       };
     }
   } catch (e) {}
+
+  // 7. YouTube ad defusing: sanitize player payloads and skip native movie_player ads
+  function sanitizeYtPlayerResponse(data) {
+    if (!data || typeof data !== 'object') return data;
+    try {
+      if ('adPlacements' in data) delete data.adPlacements;
+      if ('playerAds' in data) delete data.playerAds;
+      if ('adSlots' in data) delete data.adSlots;
+      if ('adBreakHeartbeatParams' in data) delete data.adBreakHeartbeatParams;
+      if (data.playbackTracking && typeof data.playbackTracking === 'object') {
+        delete data.playbackTracking.videostatsPlaybackUrl;
+        delete data.playbackTracking.videostatsDelayplayUrl;
+        delete data.playbackTracking.videostatsWatchtimeUrl;
+        delete data.playbackTracking.ptrackingUrl;
+        delete data.playbackTracking.qoeUrl;
+        delete data.playbackTracking.atrUrl;
+      }
+      if (data.playerResponse && typeof data.playerResponse === 'object') {
+        sanitizeYtPlayerResponse(data.playerResponse);
+      }
+    } catch (e) {}
+    return data;
+  }
+
+  // Intercept window.ytInitialPlayerResponse
+  try {
+    let _ytInitialPlayerResponse = sanitizeYtPlayerResponse(window.ytInitialPlayerResponse);
+    Object.defineProperty(window, 'ytInitialPlayerResponse', {
+      get: () => _ytInitialPlayerResponse,
+      set: (val) => {
+        _ytInitialPlayerResponse = sanitizeYtPlayerResponse(val);
+      },
+      configurable: true,
+      enumerable: true
+    });
+  } catch (e) {}
+
+  // Intercept Response.prototype.json for YouTube SPA player requests
+  try {
+    if (typeof Response !== 'undefined' && Response.prototype && Response.prototype.json) {
+      const origResponseJson = Response.prototype.json;
+      Response.prototype.json = async function () {
+        const result = await origResponseJson.apply(this, arguments);
+        if (result && typeof result === 'object') {
+          const url = (this && typeof this.url === 'string') ? this.url : '';
+          if (url.includes('/youtubei/v1/player') || url.includes('/youtubei/v1/next') || result.adPlacements || result.playerAds) {
+            sanitizeYtPlayerResponse(result);
+          }
+        }
+        return result;
+      };
+    }
+  } catch (e) {}
+
+  // Intercept JSON.parse for YouTube player configs
+  try {
+    const origJsonParse = JSON.parse;
+    JSON.parse = function (text, reviver) {
+      const result = origJsonParse.apply(this, arguments);
+      if (result && typeof result === 'object') {
+        if (result.adPlacements || result.playerAds || result.adSlots) {
+          sanitizeYtPlayerResponse(result);
+        }
+      }
+      return result;
+    };
+  } catch (e) {}
+
+  // Native movie_player ad skipper in world: "MAIN" (scoped to youtube.com)
+  function skipMoviePlayerAd() {
+    try {
+      const player = document.getElementById('movie_player');
+      if (!player) return;
+      const adState = typeof player.getAdState === 'function' ? player.getAdState() : 0;
+      const isAdShowing = adState > 0 || (player.classList && player.classList.contains('ad-showing'));
+      if (isAdShowing) {
+        if (typeof player.skipAd === 'function') {
+          player.skipAd();
+        }
+        const video = player.querySelector('video');
+        if (video) {
+          video.muted = true;
+          video.playbackRate = 16.0;
+          if (isFinite(video.duration) && video.duration > 0) {
+            video.currentTime = video.duration;
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
+  try {
+    if (typeof window !== 'undefined' && window.location?.hostname?.includes('youtube.com')) {
+      const ytTimer = setInterval(skipMoviePlayerAd, 250);
+      if (ytTimer && typeof ytTimer.unref === 'function') {
+        ytTimer.unref();
+      }
+    }
+  } catch (e) {}
 })();
