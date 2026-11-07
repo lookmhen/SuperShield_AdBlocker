@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperShield AdBlocker</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo-group">
+        <div class="shield-icon">🛡️</div>
+        <div class="title-wrap">
+          <h1>SuperShield</h1>
+          <span id="status-badge" class="badge active">PROTECTED</span>
+        </div>
+      </div>
+      <div class="toggle-wrap">
+        <label class="switch">
+          <input type="checkbox" id="toggle-switch" checked>
+          <span class="slider round"></span>
+        </label>
+      </div>
+    </header>
+
+    <section class="metrics-grid">
+      <div class="card">
+        <div class="card-icon">🚫</div>
+        <div class="card-data">
+          <span id="banners-count" class="counter">0</span>
+          <span class="label">Banners Blocked</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">⚡</div>
+        <div class="card-data">
+          <span id="videos-count" class="counter">0</span>
+          <span class="label">Videos Skipped</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-icon">🥷</div>
+        <div class="card-data">
+          <span id="defused-count" class="counter">0</span>
+          <span class="label">Defused Detection</span>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>Auto-skip & Stealth Active</span>
+    </footer>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
