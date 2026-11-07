@@ -162,20 +162,28 @@
       const target = event.target;
       if (!target) return;
 
-      // 1. Check for Fake Play Button / Transparent Click-Jacking Overlays on top of video
-      const playerContainer = target.closest('.video-container, .video-player-container, [class*="player"], [id*="player"]');
+      // 1. Check for Fake Play Button / Transparent Click-Jacking Overlays on top of video OR iframe player
+      const playerContainer = target.closest(
+        '.video-container, .video-player-container, .video-player-box, .player-wrapper, ' +
+        '.jwplayer, .video-js, .plyr, .clappr, .dplayer, .flowplayer, ' +
+        '[class*="player" i], [id*="player" i], [class*="video" i], [id*="video" i]'
+      );
       if (playerContainer) {
         const video = playerContainer.querySelector('video');
-        if (video) {
-          // Check if clicked element is an overlay sitting on top of the video
-          const overlay = target.closest(
-            '[class*="play-overlay" i], [id*="play-overlay" i], ' +
-            '[class*="player-overlay" i], [id*="player-overlay" i], ' +
-            '[class*="fake-play" i], [class*="ad-overlay" i], ' +
-            '[class*="overlay" i]'
-          ) || (target !== video && (target.style.position === 'absolute' || target.style.position === 'fixed') ? target : null);
+        const iframe = playerContainer.querySelector('iframe');
+        const mediaTarget = video || iframe;
 
-          if (overlay && overlay !== video && !video.contains(overlay)) {
+        if (mediaTarget) {
+          // Check if clicked element is an overlay sitting on top of the video or iframe
+          const overlay = target.closest(
+            '[class*="play" i], [id*="play" i], ' +
+            '[class*="overlay" i], [id*="overlay" i], ' +
+            '[class*="fake" i], [id*="fake" i], ' +
+            '[class*="trap" i], [id*="trap" i], ' +
+            '[class*="ad-" i], [id*="ad-" i]'
+          ) || (target !== mediaTarget && (target.style.position === 'absolute' || target.style.position === 'fixed') ? target : null);
+
+          if (overlay && overlay !== mediaTarget && !mediaTarget.contains(overlay)) {
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation();
@@ -183,13 +191,24 @@
             // Disarm and remove the overlay blocker
             try { overlay.remove(); } catch (e) {}
 
-            // Trigger the real video to play!
-            try {
-              const playPromise = video.play();
-              if (playPromise !== undefined) {
-                playPromise.catch(() => {});
-              }
-            } catch (err) {}
+            // Trigger real video playback or activate iframe
+            if (video) {
+              try {
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                  playPromise.catch(() => {
+                    // Autoplay policy fallback: mute and play
+                    video.muted = true;
+                    video.play().catch(() => {});
+                  });
+                }
+              } catch (err) {}
+            } else if (iframe) {
+              try {
+                iframe.style.setProperty('pointer-events', 'auto', 'important');
+                iframe.focus?.();
+              } catch (e) {}
+            }
 
             if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
               chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
@@ -199,13 +218,13 @@
         }
       }
 
-      // 2. Check for anchor links pointing to ad networks or popunders near video
+      // 2. Check for anchor links pointing to ad networks or popunders near video or iframe
       const link = target.closest('a');
       if (link && link.href) {
         const isNearVideo = Boolean(
           playerContainer ||
-          link.querySelector('video') ||
-          (link.parentElement && link.parentElement.querySelector('video'))
+          link.querySelector('video, iframe') ||
+          (link.parentElement && link.parentElement.querySelector('video, iframe'))
         );
 
         if (!isNearVideo) return;

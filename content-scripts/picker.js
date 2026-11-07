@@ -140,27 +140,67 @@
     });
   }
 
-  // 4. Force Play & Unlock Video Action
+  // 4. Force Play & Unlock Video Action (Universal Player Engine)
+  const BIG_PLAY_BUTTON_SELECTORS = [
+    '.vjs-big-play-button',
+    '.jw-display-icon-container',
+    '.jw-icon-display',
+    'button[data-plyr="play"]',
+    '.plyr__control--overlaid',
+    '.fp-play',
+    '.flowplayer .fp-ui',
+    '.dplayer-mobile-play',
+    '.dplayer-play-icon',
+    '.art-state-play',
+    '.mejs__overlay-play',
+    '.video-play-button',
+    '.play-button',
+    '.play-btn',
+    'button[aria-label*="play"]',
+    'button[aria-label*="Play"]'
+  ];
+
+  function isLegitimatePlayerControl(el) {
+    if (!el) return false;
+    const cls = String(el.className || '') + ' ' + String(el.id || '');
+    if (/vjs-control|jw-control|plyr__control|dplayer-controller/i.test(cls)) return true;
+    if (/vjs-big-play|jw-display-icon|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
+    return false;
+  }
+
   function forcePlayVideos() {
     let unlocked = false;
     let removedCount = 0;
 
+    // 1. Direct <video> elements (HTML5, JW Player, Video.js, Plyr, Clappr, etc.)
     const videos = document.querySelectorAll('video');
     for (const video of videos) {
-      const container = video.closest('.player-container, .video-container, [class*="player"], [id*="player"]') || video.parentElement;
+      let container = null;
+      try {
+        container = video.parentElement?.closest(
+          '.player-container, .video-container, .video-js, .jwplayer, .plyr, .clappr, .dplayer, .flowplayer, [class*="player"], [id*="player"]'
+        );
+      } catch (err) {}
+      if (!container) container = video.parentElement;
+
       if (container) {
-        // Find any rogue overlays covering the video
+        // Strip rogue overlays and fake buttons covering the video
         const potentialOverlays = container.querySelectorAll(
-          '[class*="overlay" i], [id*="overlay" i], [class*="play" i], [id*="play" i], div, a'
+          '[class*="overlay" i], [id*="overlay" i], [class*="play" i], [id*="play" i], [class*="fake" i], [class*="trap" i], div, a'
         );
 
         for (const el of potentialOverlays) {
           if (el === video || video.contains(el)) continue;
 
-          // Check if overlay is positioned over video
+          // Do not delete legitimate control bars or real player play buttons
+          if (isLegitimatePlayerControl(el)) {
+            continue;
+          }
+
           const isPositioned = el.style.position === 'absolute' || el.style.position === 'fixed' ||
-                               el.id.includes('overlay') || el.className.includes('overlay') ||
-                               el.className.includes('play');
+                               parseInt(el.style.zIndex, 10) > 0 ||
+                               /overlay|fake|trap|ad-|sponsor|backdrop|click/i.test(el.className + ' ' + el.id) ||
+                               (el.tagName === 'A' && el.target === '_blank');
 
           if (isPositioned) {
             try {
@@ -169,20 +209,104 @@
             } catch (e) {}
           }
         }
+
+        // Trigger Big Play Buttons for player frameworks
+        for (const sel of BIG_PLAY_BUTTON_SELECTORS) {
+          const btn = container.querySelector(sel);
+          if (btn) {
+            try {
+              if (typeof btn.click === 'function') btn.click();
+              if (typeof btn.onclick === 'function') btn.onclick();
+              unlocked = true;
+            } catch (e) {}
+          }
+        }
       }
 
-      // Force video playback
+      // Force native video playback
       try {
-        video.muted = false;
         video.playbackRate = 1.0;
+        video.muted = false;
         const p = video.play();
-        if (p !== undefined) p.catch(() => {});
+        if (p !== undefined) {
+          p.then(() => {
+            unlocked = true;
+          }).catch((err) => {
+            // Autoplay policy fallback: mute and play
+            try {
+              video.muted = true;
+              video.play().then(() => {
+                unlocked = true;
+              }).catch(() => {});
+
+              // Auto unmute on first user click anywhere
+              const unmuteOnGesture = () => {
+                try { video.muted = false; } catch (e) {}
+                window.removeEventListener('click', unmuteOnGesture, true);
+                window.removeEventListener('keydown', unmuteOnGesture, true);
+              };
+              window.addEventListener('click', unmuteOnGesture, true);
+              window.addEventListener('keydown', unmuteOnGesture, true);
+            } catch (fallbackErr) {}
+          });
+        }
         unlocked = true;
       } catch (err) {}
     }
 
+    // 2. Embedded <iframe> video players (Streaming hosts: streamtape, dood, vidcloud, etc.)
+    const iframes = document.querySelectorAll('iframe');
+    for (const iframe of iframes) {
+      const src = (iframe.src || '').toLowerCase();
+      const idClass = ((iframe.id || '') + ' ' + (iframe.className || '')).toLowerCase();
+      const rect = iframe.getBoundingClientRect ? iframe.getBoundingClientRect() : { width: 640, height: 360 };
+      const isVideoIframe = (rect.width > 200 && rect.height > 120) ||
+                            /embed|player|stream|video|movie|vids|play|watch/i.test(src) ||
+                            /player|video|stream|embed|film|cinema/i.test(idClass);
+
+      if (isVideoIframe) {
+        let container = null;
+        try {
+          container = iframe.closest('.player-container, .video-container, .player-wrapper, .video-player-box, [class*="player"], [id*="player"]');
+        } catch (err) {}
+        if (!container) container = iframe.parentElement;
+        if (container) {
+          const overlays = container.querySelectorAll(
+            '[class*="overlay" i], [id*="overlay" i], [class*="click" i], [id*="click" i], [class*="fake" i], [id*="fake" i], [class*="trap" i], a, div'
+          );
+          for (const el of overlays) {
+            if (el === iframe || iframe.contains(el)) continue;
+
+            const isPositioned = el.style.position === 'absolute' || el.style.position === 'fixed' ||
+                                 parseInt(el.style.zIndex, 10) > 0 ||
+                                 /overlay|trap|catcher|fake|play|shield|mask|backdrop|click/i.test((el.className || '') + ' ' + (el.id || '')) ||
+                                 (el.tagName === 'A' && el.target === '_blank');
+
+            if (isPositioned) {
+              try {
+                el.remove();
+                removedCount++;
+              } catch (e) {}
+            }
+          }
+        }
+
+        try {
+          iframe.style.setProperty('pointer-events', 'auto', 'important');
+        } catch (e) {}
+
+        // Send universal embed playback postMessage commands (YouTube, Vimeo, etc.)
+        try {
+          iframe.contentWindow?.postMessage('{"event":"command","func":"playVideo","args":""}', '*');
+          iframe.contentWindow?.postMessage('{"method":"play"}', '*');
+        } catch (e) {}
+
+        unlocked = true;
+      }
+    }
+
     if (unlocked) {
-      showNotification('⚡ Video Unlocked & Forced Play!');
+      showNotification('⚡ Video Player Unlocked & Forced Play!');
       if (removedCount > 0 && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: removedCount }).catch(() => {});
       }
