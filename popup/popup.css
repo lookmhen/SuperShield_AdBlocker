@@ -48,7 +48,16 @@ body {
 }
 
 .shield-icon {
-  font-size: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-logo-img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(56, 189, 248, 0.45));
 }
 
 .title-wrap h1 {
