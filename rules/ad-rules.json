@@ -233,5 +233,32 @@
       "urlFilter": "||moatads.com^",
       "resourceTypes": ["script", "image", "xmlhttprequest"]
     }
+  },
+  {
+    "id": 26,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "||1xbet*.com^",
+      "resourceTypes": ["sub_frame", "script", "image", "xmlhttprequest"]
+    }
+  },
+  {
+    "id": 27,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "||cutt.ly/*1xbet*",
+      "resourceTypes": ["sub_frame", "script", "image", "xmlhttprequest"]
+    }
+  },
+  {
+    "id": 28,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "||ufabet*.com^",
+      "resourceTypes": ["sub_frame", "script", "image", "xmlhttprequest"]
+    }
   }
 ]

@@ -1,5 +1,5 @@
 // content-scripts/defuser-main.js
-// Runs in world: "MAIN" at document_start to defeat JS-based anti-adblock detection
+// Runs in world: "MAIN" at document_start to defeat JS-based anti-adblock detection and block ad popunders
 (function () {
   'use strict';
 
@@ -79,4 +79,28 @@
       };
     } catch (e) {}
   }
+
+  // 4. Wrap window.open to disarm ad popups and streaming popunders
+  try {
+    const origOpen = window.open;
+    const AD_POPUP_PATTERNS = [
+      '1xbet', 'cutt.ly', 'ufabet', 'bet365', 'sbobet', 'pgslot',
+      'popads', 'propeller', 'adsterra', 'betting', 'affiliate',
+      'casino', 'baccarat', 'slotxo', 'slot888'
+    ];
+
+    window.open = function (url, target, features) {
+      if (typeof url === 'string') {
+        const lowerUrl = url.toLowerCase();
+        const isAdPopup = AD_POPUP_PATTERNS.some(p => lowerUrl.includes(p));
+        if (isAdPopup) {
+          return null; // Block popunder / ad tab
+        }
+      }
+      if (typeof origOpen === 'function') {
+        return origOpen.call(window, url, target, features);
+      }
+      return null;
+    };
+  } catch (e) {}
 })();
