@@ -1,0 +1,30 @@
+/* content-scripts/cosmetic.css */
+/* High-efficiency display ad and banner hiding rules */
+
+.ad-banner,
+.adsbygoogle,
+.ad-container,
+.ad-wrapper,
+.advertisement,
+.sponsor-banner,
+.floating-ad,
+.sticky-ad,
+[id^="google_ads_"],
+[id^="div-gpt-ad-"],
+[class*="ad-box"],
+[class*="ad-slot"],
+[class*="banner-ad"],
+[class*="sponsored-post"],
+iframe[src*="doubleclick.net"],
+iframe[src*="googlesyndication.com"],
+iframe[src*="adnxs.com"],
+iframe[src*="smartadserver.com"],
+iframe[src*="taboola.com"],
+iframe[src*="outbrain.com"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  pointer-events: none !important;
+}
