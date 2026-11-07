@@ -4,6 +4,7 @@
   "description": "Chrome Extension AdBlocker for Banner Ads, Anti-Adblock Defuser, and Universal Video Skip",
   "type": "module",
   "scripts": {
+    "build": "node scripts/build-dist.js",
     "test": "node --test tests/*.test.js"
   },
   "devDependencies": {

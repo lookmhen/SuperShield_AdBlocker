@@ -22,3 +22,22 @@ test('surrogate scripts define required mock structures without error', () => {
   const prebidCode = fs.readFileSync('surrogates/prebid.js', 'utf8');
   assert.ok(prebidCode.includes('pbjs'));
 });
+
+test('production dist packaging contains only clean runtime files without development clutter', () => {
+  // Ensure dist is built
+  if (!fs.existsSync('dist/manifest.json')) {
+    import('../scripts/build-dist.js');
+  }
+
+  assert.ok(fs.existsSync('dist/manifest.json'), 'dist/manifest.json must exist');
+  assert.ok(fs.existsSync('dist/background/service-worker.js'), 'dist background worker must exist');
+  assert.ok(fs.existsSync('dist/popup/popup.html'), 'dist popup html must exist');
+  assert.ok(fs.existsSync('dist/rules/ad-rules.json'), 'dist rules must exist');
+  assert.ok(fs.existsSync('dist/icons/icon48.png'), 'dist icons must exist');
+
+  // Verify development files are excluded from dist
+  assert.equal(fs.existsSync('dist/tests'), false, 'tests/ must be excluded from dist');
+  assert.equal(fs.existsSync('dist/node_modules'), false, 'node_modules/ must be excluded from dist');
+  assert.equal(fs.existsSync('dist/package.json'), false, 'package.json must be excluded from dist');
+  assert.equal(fs.existsSync('dist/icons/generate-icons.js'), false, 'development scripts must be excluded from dist icons');
+});
