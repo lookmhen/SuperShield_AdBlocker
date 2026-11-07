@@ -87,32 +87,34 @@ test('video-blocker counts video ads intercepted even when skip button is not cl
       </body>
     </html>`, { runScripts: 'dangerously' });
 
-  let sentMessages = [];
-  dom.window.chrome = {
-    storage: {
-      local: {
-        get: (keys, cb) => cb({ enabled: true }),
-        set: () => {}
+  try {
+    let sentMessages = [];
+    dom.window.chrome = {
+      storage: {
+        local: {
+          get: (keys, cb) => cb({ enabled: true }),
+          set: () => {}
+        },
+        onChanged: { addListener: () => {} }
       },
-      onChanged: { addListener: () => {} }
-    },
-    runtime: {
-      sendMessage: (msg) => {
-        sentMessages.push(msg);
-        return Promise.resolve();
+      runtime: {
+        sendMessage: (msg) => {
+          sentMessages.push(msg);
+          return Promise.resolve();
+        }
       }
-    }
-  };
+    };
 
-  const video = dom.window.document.querySelector('video');
-  Object.defineProperty(video, 'duration', { value: 15, configurable: true, writable: true });
+    const video = dom.window.document.querySelector('video');
+    Object.defineProperty(video, 'duration', { value: 15, configurable: true, writable: true });
 
-  dom.window.eval(videoBlockerCode);
+    dom.window.eval(videoBlockerCode);
 
-  assert.ok(
-    sentMessages.some(m => m.type === 'VIDEO_AD_SKIPPED'),
-    'VIDEO_AD_SKIPPED message should be sent when ad-showing is active'
-  );
-
-  dom.window.close();
+    assert.ok(
+      sentMessages.some(m => m.type === 'VIDEO_AD_SKIPPED'),
+      'VIDEO_AD_SKIPPED message should be sent when ad-showing is active'
+    );
+  } finally {
+    dom.window.close();
+  }
 });
