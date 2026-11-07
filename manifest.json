@@ -5,6 +5,7 @@
   "description": "High-performance ad blocker with anti-adblock evasion, cosmetic banner hiding, interactive element picker, and universal video ad skip.",
   "permissions": [
     "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
     "storage",
     "activeTab"
   ],

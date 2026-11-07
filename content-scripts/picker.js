@@ -101,11 +101,16 @@
     const hostname = getHostname();
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
 
-    chrome.storage.local.get('customFilters', (res) => {
+    chrome.storage.local.get(['customFilters', 'enabled'], (res) => {
+      let styleEl = document.getElementById('supershield-custom-filters');
+      if (res && res.enabled === false) {
+        if (styleEl) styleEl.remove();
+        return;
+      }
+
       const filters = res?.customFilters?.[hostname] || [];
       if (!Array.isArray(filters) || filters.length === 0) return;
 
-      let styleEl = document.getElementById('supershield-custom-filters');
       if (!styleEl) {
         styleEl = document.createElement('style');
         styleEl.id = 'supershield-custom-filters';
@@ -123,6 +128,14 @@
             el.style.setProperty('display', 'none', 'important');
           }
         } catch (e) {}
+      }
+    });
+  }
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local' && (changes.customFilters || changes.enabled !== undefined)) {
+        applyCustomFilters();
       }
     });
   }

@@ -72,16 +72,33 @@
     }
   }
 
-  // Handle toggle switch change
+    // Handle toggle switch change
   if (toggleSwitch) {
     toggleSwitch.addEventListener('change', (e) => {
       const enabled = e.target.checked;
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        chrome.storage.local.set({ enabled });
+      }
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         chrome.runtime.sendMessage({ type: 'TOGGLE_ENABLED', enabled }, (res) => {
           updateUI(res || { enabled });
         });
       } else {
         updateUI({ enabled });
+      }
+    });
+  }
+
+  // Live storage change listener to keep stats synchronized
+  if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'local') {
+        chrome.storage.local.get(null, (data) => {
+          updateUI(data || {});
+          if (data?.customFilters) {
+            updateSiteRules(data.customFilters);
+          }
+        });
       }
     });
   }

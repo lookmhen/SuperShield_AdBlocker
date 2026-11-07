@@ -39,6 +39,31 @@
 
   let isEnabled = true;
 
+  function setExtensionState(active) {
+    isEnabled = Boolean(active);
+    if (document.documentElement) {
+      if (active) {
+        document.documentElement.setAttribute('data-supershield-active', 'true');
+        document.documentElement.removeAttribute('data-supershield-disabled');
+      } else {
+        document.documentElement.removeAttribute('data-supershield-active');
+        document.documentElement.setAttribute('data-supershield-disabled', 'true');
+      }
+    }
+  }
+
+  function unhideAllBlocked() {
+    const hiddenElements = document.querySelectorAll('[data-supershield-hidden]');
+    for (const el of hiddenElements) {
+      el.removeAttribute('data-supershield-hidden');
+      el._supershieldHidden = false;
+      el.style.removeProperty('display');
+      el.style.removeProperty('visibility');
+      el.style.removeProperty('height');
+      el.style.removeProperty('pointer-events');
+    }
+  }
+
   function scanAndHideBanners() {
     if (!isEnabled) return;
     let newlyBlocked = 0;
@@ -68,6 +93,7 @@
         if (shouldHide) {
           el._supershieldHidden = true;
           try {
+            el.setAttribute('data-supershield-hidden', 'true');
             el.style.setProperty('display', 'none', 'important');
             el.style.setProperty('visibility', 'hidden', 'important');
             el.style.setProperty('height', '0px', 'important');
@@ -79,6 +105,7 @@
               const parentText = (parent.textContent || '').trim();
               if (parentText === '' || parent.id.includes('banner') || parent.className.includes('banner')) {
                 parent._supershieldHidden = true;
+                parent.setAttribute('data-supershield-hidden', 'true');
                 parent.style.setProperty('display', 'none', 'important');
               }
             }
@@ -92,21 +119,38 @@
     }
   }
 
+  function updateEnabledState(active) {
+    setExtensionState(active);
+    if (active) {
+      scanAndHideBanners();
+    } else {
+      unhideAllBlocked();
+    }
+  }
+
   // Sync extension enabled state
   if (typeof chrome !== 'undefined' && chrome.storage?.local) {
     chrome.storage.local.get('enabled', (data) => {
-      if (data && data.enabled !== undefined) {
-        isEnabled = data.enabled;
-        if (isEnabled) scanAndHideBanners();
-      }
+      const active = data && data.enabled !== undefined ? data.enabled : true;
+      updateEnabledState(active);
     });
 
     chrome.storage.onChanged?.addListener((changes, area) => {
-      if (area === 'local' && changes.enabled) {
-        isEnabled = changes.enabled.newValue;
-        if (isEnabled) scanAndHideBanners();
+      if (area === 'local' && changes.enabled !== undefined) {
+        updateEnabledState(changes.enabled.newValue);
       }
     });
+
+    if (chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg && msg.type === 'SET_ENABLED') {
+          updateEnabledState(msg.enabled);
+        }
+      });
+    }
+  } else {
+    // Non-extension test environments
+    updateEnabledState(true);
   }
 
   // Intercept click hijacking, fake play overlays, and popunders
@@ -208,19 +252,19 @@
     window.scanAndHideBanners = scanAndHideBanners;
   }
 
-  // Run on load and observe DOM mutations
-  scanAndHideBanners();
-
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', scanAndHideBanners);
+    document.addEventListener('DOMContentLoaded', () => {
+      if (isEnabled) scanAndHideBanners();
+    });
   }
 
   let debounceTimer = null;
   const observer = new MutationObserver(() => {
+    if (!isEnabled) return;
     if (!debounceTimer) {
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
-        scanAndHideBanners();
+        if (isEnabled) scanAndHideBanners();
       }, 100);
     }
   });

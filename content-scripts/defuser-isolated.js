@@ -5,18 +5,32 @@
 
   let isEnabled = true;
 
+  function updateState(enabled) {
+    isEnabled = Boolean(enabled);
+    if (isEnabled) {
+      dismissModals();
+    }
+  }
+
   if (typeof chrome !== 'undefined' && chrome.storage?.local) {
     chrome.storage.local.get('enabled', (data) => {
-      if (data && data.enabled !== undefined) {
-        isEnabled = data.enabled;
-      }
+      const active = data && data.enabled !== undefined ? data.enabled : true;
+      updateState(active);
     });
 
     chrome.storage.onChanged?.addListener((changes, area) => {
-      if (area === 'local' && changes.enabled) {
-        isEnabled = changes.enabled.newValue;
+      if (area === 'local' && changes.enabled !== undefined) {
+        updateState(changes.enabled.newValue);
       }
     });
+
+    if (chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg && msg.type === 'SET_ENABLED') {
+          updateState(msg.enabled);
+        }
+      });
+    }
   }
 
   const ANTI_ADBLOCK_SELECTORS = [
@@ -60,21 +74,24 @@
     }
   }
 
-  // Run immediately
+  // Run initial modal check
   dismissModals();
 
   // Also run on DOMContentLoaded and observe mutations
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', dismissModals);
+    document.addEventListener('DOMContentLoaded', () => {
+      if (isEnabled) dismissModals();
+    });
   }
 
   // Throttle mutation observer
   let timeoutId = null;
   const observer = new MutationObserver(() => {
+    if (!isEnabled) return;
     if (!timeoutId) {
       timeoutId = setTimeout(() => {
         timeoutId = null;
-        dismissModals();
+        if (isEnabled) dismissModals();
       }, 100);
     }
   });

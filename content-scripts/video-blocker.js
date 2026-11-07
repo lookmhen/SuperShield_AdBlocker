@@ -3,22 +3,6 @@
 (function () {
   'use strict';
 
-  let isEnabled = true;
-
-  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-    chrome.storage.local.get('enabled', (data) => {
-      if (data && data.enabled !== undefined) {
-        isEnabled = data.enabled;
-      }
-    });
-
-    chrome.storage.onChanged?.addListener((changes, area) => {
-      if (area === 'local' && changes.enabled) {
-        isEnabled = changes.enabled.newValue;
-      }
-    });
-  }
-
   const YT_SKIP_SELECTORS = [
     '.ytp-ad-skip-button',
     '.ytp-ad-skip-button-modern',
@@ -40,6 +24,8 @@
 
   // Use strict word boundary patterns to prevent matching video-adapter, etc.
   const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing)\b/i;
+
+  let isEnabled = true;
 
   function clickSkipButtons(root) {
     let skipped = false;
@@ -105,13 +91,22 @@
               ytVideo.currentTime = ytVideo.duration;
             }
           } catch (e) {}
+
           if (clickSkipButtons(ytPlayer)) {
             skippedAny = true;
+          }
+
+          if (!ytVideo._supershieldCounted) {
+            ytVideo._supershieldCounted = true;
+            if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+              chrome.runtime.sendMessage({ type: 'VIDEO_AD_SKIPPED', count: 1 }).catch(() => {});
+            }
           }
         } else if (ytVideo._adBlockActive) {
           // Restore playback state once ad finishes
           try {
             ytVideo._adBlockActive = false;
+            ytVideo._supershieldCounted = false;
             ytVideo.playbackRate = 1.0;
             ytVideo.muted = false;
           } catch (e) {}
@@ -151,10 +146,18 @@
         if (clickSkipButtons(container || document)) {
           skippedAny = true;
         }
+
+        if (!video._supershieldCounted) {
+          video._supershieldCounted = true;
+          if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+            chrome.runtime.sendMessage({ type: 'VIDEO_AD_SKIPPED', count: 1 }).catch(() => {});
+          }
+        }
       } else if (video._adBlockActive) {
         // Restore playback state once ad finishes
         try {
           video._adBlockActive = false;
+          video._supershieldCounted = false;
           video.playbackRate = 1.0;
           video.muted = false;
         } catch (e) {}
@@ -166,22 +169,64 @@
     }
   }
 
+  function setEnabledState(active) {
+    isEnabled = Boolean(active);
+    if (!isEnabled) {
+      // Restore any video currently manipulated
+      const videos = document.querySelectorAll('video');
+      for (const v of videos) {
+        if (v._adBlockActive) {
+          try {
+            v._adBlockActive = false;
+            v._supershieldCounted = false;
+            v.playbackRate = 1.0;
+            v.muted = false;
+          } catch (e) {}
+        }
+      }
+    } else {
+      handleVideoAds();
+    }
+  }
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.get('enabled', (data) => {
+      const active = data && data.enabled !== undefined ? data.enabled : true;
+      setEnabledState(active);
+    });
+
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area === 'local' && changes.enabled !== undefined) {
+        setEnabledState(changes.enabled.newValue);
+      }
+    });
+
+    if (chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener((msg) => {
+        if (msg && msg.type === 'SET_ENABLED') {
+          setEnabledState(msg.enabled);
+        }
+      });
+    }
+  }
+
   // Expose for testing
   if (typeof window !== 'undefined') {
     window.handleVideoAds = handleVideoAds;
   }
 
-  // Run immediately
+  // Run on initial load
   handleVideoAds();
 
   // Watch DOM mutations
   let scheduled = false;
   const observer = new MutationObserver(() => {
+    if (!isEnabled) return;
     if (!scheduled) {
       scheduled = true;
       setTimeout(() => {
         scheduled = false;
-        handleVideoAds();
+        if (isEnabled) handleVideoAds();
       }, 50);
     }
   });
@@ -196,7 +241,9 @@
   }
 
   // Periodic fallback check for video ad timing
-  const timer = setInterval(handleVideoAds, 500);
+  const timer = setInterval(() => {
+    if (isEnabled) handleVideoAds();
+  }, 500);
   if (timer && typeof timer.unref === 'function') {
     timer.unref();
   }
