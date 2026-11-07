@@ -14,6 +14,7 @@ test('verify complete project structure for Chrome extension unpack loading', ()
     'content-scripts/cosmetic-filter.js',
     'content-scripts/cosmetic.css',
     'content-scripts/video-blocker.js',
+    'content-scripts/picker.js',
     'background/service-worker.js',
     'background/service-worker-logic.js',
     'popup/popup.html',

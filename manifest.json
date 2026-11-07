@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "SuperShield AdBlocker",
-  "version": "1.0.0",
-  "description": "High-performance ad blocker with anti-adblock evasion, cosmetic banner hiding, and universal video ad skip.",
+  "version": "1.1.0",
+  "description": "High-performance ad blocker with anti-adblock evasion, cosmetic banner hiding, interactive element picker, and universal video ad skip.",
   "permissions": [
     "declarativeNetRequest",
-    "storage"
+    "storage",
+    "activeTab"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -50,7 +51,8 @@
       "js": [
         "content-scripts/defuser-isolated.js",
         "content-scripts/cosmetic-filter.js",
-        "content-scripts/video-blocker.js"
+        "content-scripts/video-blocker.js",
+        "content-scripts/picker.js"
       ],
       "run_at": "document_start",
       "all_frames": true,
