@@ -155,11 +155,43 @@
 
   function isLegitimatePlayerControl(el) {
     if (!el) return false;
+    if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO' || el.tagName === 'TRACK' || el.tagName === 'SOURCE') return true;
+
+    // Explicit ad overlay elements are NEVER legitimate controls
     const cls = String(el.className || '') + ' ' + String(el.id || '');
-    if (/jw-flag-ads|ad-container|video-ad|ad-overlay/i.test(cls)) return false;
+    if (/jw-flag-ads|ad-container|video-ad|ad-overlay|fake-play|fake-player|click-trap|play-trap|stream-overlay/i.test(cls)) {
+      return false;
+    }
+
+    // Check if element is or is inside any control bar / panel / toolbar
+    const controlAncestor = el.closest?.(
+      '.controls, .player-controls, .video-controls, .control-bar, .controls-panel, .player-control-bar, ' +
+      '.vjs-control-bar, .jw-controls, .plyr__controls, .dplayer-controller, .art-controls, ' +
+      '.fp-controls, .mejs__controls, [class*="control" i], [id*="control" i], ' +
+      '[class*="toolbar" i], [class*="bottom-bar" i]'
+    );
+    if (controlAncestor) {
+      const ancestorCls = String(controlAncestor.className || '') + ' ' + String(controlAncestor.id || '');
+      if (!/jw-flag-ads|ad-container|video-ad|ad-overlay|fake|trap/i.test(ancestorCls)) {
+        return true;
+      }
+    }
+
+    // Check if element is a control button or slider by common player attributes/classes
+    const isControlFeature = el.closest?.(
+      '[class*="volume" i], [id*="volume" i], [class*="mute" i], [id*="mute" i], [class*="sound" i], [id*="sound" i], [class*="speaker" i], [id*="speaker" i], ' +
+      '[class*="fullscreen" i], [id*="fullscreen" i], [class*="full-screen" i], [id*="full-screen" i], ' +
+      '[class*="progress" i], [id*="progress" i], [class*="timeline" i], [id*="timeline" i], [class*="seekbar" i], [id*="seekbar" i], ' +
+      '[class*="setting" i], [id*="setting" i], [class*="gear" i], [class*="subtitle" i], [class*="caption" i], [class*="quality" i], [class*="speed" i], [class*="pip" i], ' +
+      '[aria-label*="play" i], [aria-label*="pause" i], [aria-label*="mute" i], [aria-label*="volume" i], [aria-label*="sound" i], [aria-label*="fullscreen" i], [aria-label*="Full" i], ' +
+      '[role="slider"], [role="progressbar"], input[type="range"]'
+    );
+    if (isControlFeature) return true;
+
+    // Standard player framework classes (VideoJS, JWPlayer, Plyr, DPlayer, Artplayer, Flowplayer)
     if (/vjs-control|vjs-button|jw-control|jw-display-icon|jw-icon|plyr__control|dplayer-controller|dplayer-icon|art-control/i.test(cls)) return true;
     if (/vjs-big-play|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
-    if (el.tagName === 'VIDEO' || el.tagName === 'TRACK') return true;
+
     return false;
   }
 
@@ -184,18 +216,30 @@
         if (target === mediaTarget) return null;
         if (isLegitimatePlayerControl(target)) return null;
 
+        // Specific overlay matchers - NEVER use generic [class*="play"] which matches "player"
         const matchedOverlay = target.closest(
-          '[class*="play" i], [id*="play" i], ' +
+          '[class*="play-overlay" i], [id*="play-overlay" i], ' +
+          '[class*="fake-play" i], [id*="fake-play" i], ' +
+          '[class*="play-fake" i], [id*="play-fake" i], ' +
+          '[class*="play-trap" i], [id*="play-trap" i], ' +
+          '[class*="play-button" i], [id*="play-button" i], ' +
+          '[class*="play-btn" i], [id*="play-btn" i], ' +
           '[class*="overlay" i], [id*="overlay" i], ' +
           '[class*="fake" i], [id*="fake" i], ' +
           '[class*="trap" i], [id*="trap" i], ' +
+          '[class*="click-trap" i], [id*="click-trap" i], ' +
+          '[class*="catcher" i], [id*="catcher" i], ' +
           '[class*="ad-" i], [id*="ad-" i], ' +
-          '[class*="click" i], [id*="click" i]'
-        ) || ((target.style.position === 'absolute' || target.style.position === 'fixed') ? target : null)
-          || (target.tagName === 'A' ? target : null)
-          || target;
+          'a[target="_blank"]'
+        ) || ((target.style.position === 'absolute' || target.style.position === 'fixed') && !isLegitimatePlayerControl(target) ? target : null);
 
-        if (matchedOverlay && matchedOverlay !== mediaTarget && !mediaTarget.contains(matchedOverlay)) {
+        // Safety Invariant: The overlay must exist, cannot be mediaTarget, cannot contain mediaTarget, and cannot be playerContainer
+        if (matchedOverlay &&
+            matchedOverlay !== mediaTarget &&
+            !mediaTarget.contains(matchedOverlay) &&
+            !matchedOverlay.contains(mediaTarget) &&
+            matchedOverlay !== playerContainer &&
+            !isLegitimatePlayerControl(matchedOverlay)) {
           return { overlay: matchedOverlay, video, iframe, playerContainer };
         }
       }
@@ -209,7 +253,7 @@
       const isTrapName = /trap|overlay|click|catcher|fake|pop|mask|backdrop/i.test((target.id || '') + ' ' + (target.className || ''));
 
       if (isFixedOrAbsolute && (isZIndexHigh || isTrapName)) {
-        if (!target.querySelector('video, iframe')) {
+        if (!target.querySelector('video, iframe') && !isLegitimatePlayerControl(target)) {
           const video = document.querySelector('video');
           const iframe = document.querySelector('iframe');
           return { overlay: target, video, iframe, playerContainer: null };
@@ -226,7 +270,7 @@
         (link.parentElement && link.parentElement.querySelector('video, iframe'))
       );
 
-      if (isNearVideo) {
+      if (isNearVideo && !isLegitimatePlayerControl(link)) {
         let linkHostname = '';
         try {
           const url = new URL(link.href, window.location.href);
@@ -335,13 +379,15 @@
       if (!media) continue;
 
       const overlays = container.querySelectorAll(
+        '[class*="play-overlay" i], [id*="play-overlay" i], ' +
+        '[class*="fake-play" i], [id*="fake-play" i], ' +
         '[class*="overlay" i], [id*="overlay" i], [class*="fake" i], [id*="fake" i], ' +
-        '[class*="trap" i], [id*="trap" i], [class*="click" i], [id*="click" i], ' +
+        '[class*="trap" i], [id*="trap" i], [class*="click-trap" i], [id*="click-trap" i], ' +
         '[class*="ad-" i], [id*="ad-" i], a[target="_blank"]'
       );
 
       for (const el of overlays) {
-        if (el === media || media.contains(el) || isLegitimatePlayerControl(el)) continue;
+        if (el === media || media.contains(el) || el.contains(media) || el === container || isLegitimatePlayerControl(el)) continue;
         try {
           el.remove();
         } catch (e) {

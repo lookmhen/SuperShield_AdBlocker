@@ -162,9 +162,43 @@
 
   function isLegitimatePlayerControl(el) {
     if (!el) return false;
+    if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO' || el.tagName === 'TRACK' || el.tagName === 'SOURCE') return true;
+
+    // Explicit ad overlay elements are NEVER legitimate controls
     const cls = String(el.className || '') + ' ' + String(el.id || '');
-    if (/vjs-control|jw-control|plyr__control|dplayer-controller/i.test(cls)) return true;
-    if (/vjs-big-play|jw-display-icon|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
+    if (/jw-flag-ads|ad-container|video-ad|ad-overlay|fake-play|fake-player|click-trap|play-trap|stream-overlay/i.test(cls)) {
+      return false;
+    }
+
+    // Check if element is or is inside any control bar / panel / toolbar
+    const controlAncestor = el.closest?.(
+      '.controls, .player-controls, .video-controls, .control-bar, .controls-panel, .player-control-bar, ' +
+      '.vjs-control-bar, .jw-controls, .plyr__controls, .dplayer-controller, .art-controls, ' +
+      '.fp-controls, .mejs__controls, [class*="control" i], [id*="control" i], ' +
+      '[class*="toolbar" i], [class*="bottom-bar" i]'
+    );
+    if (controlAncestor) {
+      const ancestorCls = String(controlAncestor.className || '') + ' ' + String(controlAncestor.id || '');
+      if (!/jw-flag-ads|ad-container|video-ad|ad-overlay|fake|trap/i.test(ancestorCls)) {
+        return true;
+      }
+    }
+
+    // Check if element is a control button or slider by common player attributes/classes
+    const isControlFeature = el.closest?.(
+      '[class*="volume" i], [id*="volume" i], [class*="mute" i], [id*="mute" i], [class*="sound" i], [id*="sound" i], [class*="speaker" i], [id*="speaker" i], ' +
+      '[class*="fullscreen" i], [id*="fullscreen" i], [class*="full-screen" i], [id*="full-screen" i], ' +
+      '[class*="progress" i], [id*="progress" i], [class*="timeline" i], [id*="timeline" i], [class*="seekbar" i], [id*="seekbar" i], ' +
+      '[class*="setting" i], [id*="setting" i], [class*="gear" i], [class*="subtitle" i], [class*="caption" i], [class*="quality" i], [class*="speed" i], [class*="pip" i], ' +
+      '[aria-label*="play" i], [aria-label*="pause" i], [aria-label*="mute" i], [aria-label*="volume" i], [aria-label*="sound" i], [aria-label*="fullscreen" i], [aria-label*="Full" i], ' +
+      '[role="slider"], [role="progressbar"], input[type="range"]'
+    );
+    if (isControlFeature) return true;
+
+    // Standard player framework classes (VideoJS, JWPlayer, Plyr, DPlayer, Artplayer, Flowplayer)
+    if (/vjs-control|vjs-button|jw-control|jw-display-icon|jw-icon|plyr__control|dplayer-controller|dplayer-icon|art-control/i.test(cls)) return true;
+    if (/vjs-big-play|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
+
     return false;
   }
 
@@ -186,11 +220,19 @@
       if (container) {
         // Strip rogue overlays and fake buttons covering the video
         const potentialOverlays = container.querySelectorAll(
-          '[class*="overlay" i], [id*="overlay" i], [class*="play" i], [id*="play" i], [class*="fake" i], [class*="trap" i], div, a'
+          '[class*="play-overlay" i], [id*="play-overlay" i], ' +
+          '[class*="fake-play" i], [id*="fake-play" i], ' +
+          '[class*="play-button" i], [id*="play-button" i], ' +
+          '[class*="play-btn" i], [id*="play-btn" i], ' +
+          '[class*="overlay" i], [id*="overlay" i], ' +
+          '[class*="fake" i], [id*="fake" i], ' +
+          '[class*="trap" i], [id*="trap" i], ' +
+          '[class*="click-trap" i], [id*="click-trap" i], ' +
+          'div[style*="absolute"], div[style*="fixed"], a[target="_blank"]'
         );
 
         for (const el of potentialOverlays) {
-          if (el === video || video.contains(el)) continue;
+          if (el === video || video.contains(el) || el.contains(video) || el === container) continue;
 
           // Do not delete legitimate control bars or real player play buttons
           if (isLegitimatePlayerControl(el)) {
