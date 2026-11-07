@@ -30,7 +30,7 @@
     });
   } catch (e) {}
 
-  // 2. Stub Google AdSense and GPT objects on window
+  // 2. Stub Google AdSense objects on window
   if (!window.adsbygoogle) {
     const dummyAdsByGoogle = [];
     dummyAdsByGoogle.loaded = true;
@@ -40,30 +40,35 @@
           try { obj.onload(); } catch (err) {}
         }
       }
-      return 0;
+      return Array.prototype.push.call(dummyAdsByGoogle, obj);
     };
     try {
       window.adsbygoogle = dummyAdsByGoogle;
     } catch (e) {}
   }
 
-  // 3. Stub googletag
+  // 3. Stub googletag with fully chainable methods
   if (!window.googletag) {
+    const pubadsInstance = {
+      addEventListener: function () { return this; },
+      enableSingleRequest: function () { return this; },
+      collapseEmptyDivs: function () { return this; },
+      setTargeting: function () { return this; },
+      clearTargeting: function () { return this; },
+      setCategoryExclusion: function () { return this; },
+      refresh: function () { return this; }
+    };
+
     try {
       window.googletag = {
         cmd: [],
-        pubads: () => ({
-          addEventListener: () => {},
-          enableSingleRequest: () => {},
-          collapseEmptyDivs: () => {},
-          setTargeting: () => {},
-          clearTargeting: () => {}
-        }),
+        pubads: () => pubadsInstance,
         enableServices: () => {},
         display: () => {},
         defineSlot: () => ({
           addService: function () { return this; },
-          setTargeting: function () { return this; }
+          setTargeting: function () { return this; },
+          setCollapseEmptyDiv: function () { return this; }
         })
       };
       window.googletag.cmd.push = function (fn) {

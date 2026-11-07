@@ -3,6 +3,22 @@
 (function () {
   'use strict';
 
+  let isEnabled = true;
+
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.get('enabled', (data) => {
+      if (data && data.enabled !== undefined) {
+        isEnabled = data.enabled;
+      }
+    });
+
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area === 'local' && changes.enabled) {
+        isEnabled = changes.enabled.newValue;
+      }
+    });
+  }
+
   const ANTI_ADBLOCK_SELECTORS = [
     '#adblock-modal-overlay',
     '.adblock-warning-popup',
@@ -19,6 +35,7 @@
   ];
 
   function dismissModals() {
+    if (!isEnabled) return;
     let defusedCount = 0;
     for (const selector of ANTI_ADBLOCK_SELECTORS) {
       const elements = document.querySelectorAll(selector);
@@ -39,9 +56,7 @@
     }
 
     if (defusedCount > 0 && typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      try {
-        chrome.runtime.sendMessage({ type: 'ANTI_ADBLOCK_DEFUSED', count: defusedCount });
-      } catch (err) {}
+      chrome.runtime.sendMessage({ type: 'ANTI_ADBLOCK_DEFUSED', count: defusedCount }).catch(() => {});
     }
   }
 

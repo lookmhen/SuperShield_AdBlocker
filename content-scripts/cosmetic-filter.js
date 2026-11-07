@@ -3,62 +3,80 @@
 (function () {
   'use strict';
 
-  const SUSPICIOUS_DOMAINS = [
-    'malicious-tracker.ad',
-    'popads',
-    'propellerads',
-    'adsterra',
+  let isEnabled = true;
+
+  // Sync extension enabled state
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    chrome.storage.local.get('enabled', (data) => {
+      if (data && data.enabled !== undefined) {
+        isEnabled = data.enabled;
+      }
+    });
+
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area === 'local' && changes.enabled) {
+        isEnabled = changes.enabled.newValue;
+      }
+    });
+  }
+
+  const KNOWN_AD_DOMAINS = [
+    'popads.net',
+    'propellerads.com',
+    'adsterra.com',
     'betting',
-    'track',
-    'click',
-    'affiliate',
-    'redirect'
+    'malicious-tracker.ad'
   ];
 
-  // Intercept click hijacking and popunders (especially around video elements)
+  // Intercept click hijacking and popunders (strictly around video elements)
   document.addEventListener(
     'click',
     function (event) {
+      if (!isEnabled) return;
+
       const target = event.target;
       if (!target) return;
 
       // Check if clicked element is an anchor or is inside an anchor
       const link = target.closest('a');
       if (link && link.href) {
-        const href = link.href.toLowerCase();
-        
-        // Check if anchor is placed on top of a video container
+        // Must be directly over or associated with a video element
         const isNearVideo = Boolean(
           link.closest('.video-player-container, [class*="player"], [id*="player"]') ||
           link.querySelector('video') ||
           (link.parentElement && link.parentElement.querySelector('video'))
         );
 
-        const isSuspicious = SUSPICIOUS_DOMAINS.some(domain => href.includes(domain));
-        const isBlankPopunder = link.target === '_blank' && isNearVideo;
+        if (!isNearVideo) {
+          // Never block normal links outside of video containers
+          return;
+        }
 
-        if (isSuspicious || (isNearVideo && isBlankPopunder && href.startsWith('http'))) {
-          // Verify if it is not navigating within the same origin host
-          try {
-            const url = new URL(link.href, window.location.href);
-            if (url.hostname !== window.location.hostname || isSuspicious) {
-              event.preventDefault();
-              event.stopPropagation();
-              event.stopImmediatePropagation();
+        let linkHostname = '';
+        try {
+          const url = new URL(link.href, window.location.href);
+          linkHostname = url.hostname.toLowerCase();
+        } catch (e) {
+          return;
+        }
 
-              // Remove the fake transparent overlay if present
-              if (link.style.position === 'absolute' || link.style.position === 'fixed') {
-                link.remove();
-              }
+        const isKnownAdDomain = KNOWN_AD_DOMAINS.some(domain => linkHostname.includes(domain));
+        const isBlankPopunder = link.target === '_blank' && linkHostname !== window.location.hostname;
 
-              if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-                try {
-                  chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 });
-                } catch (e) {}
-              }
-              return false;
-            }
-          } catch (e) {}
+        if (isKnownAdDomain || isBlankPopunder) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+
+          // Remove the fake transparent overlay if present
+          if (link.style.position === 'absolute' || link.style.position === 'fixed') {
+            try { link.remove(); } catch (e) {}
+          }
+
+          if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+            chrome.runtime.sendMessage({ type: 'AD_BLOCKED', count: 1 }).catch(() => {});
+          }
+          return false;
         }
       }
     },

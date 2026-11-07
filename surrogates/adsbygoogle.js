@@ -10,6 +10,6 @@
         try { obj.onload(); } catch (e) {}
       }
     }
-    return 0;
+    return Array.prototype.push.call(window.adsbygoogle, obj);
   };
 })();
