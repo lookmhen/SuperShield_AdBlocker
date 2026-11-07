@@ -101,3 +101,67 @@ test('ad-rules.json blocks YouTube ad beacons and player ad break endpoints', ()
   assert.ok(ytRuleAdBreak, 'Must block youtube.com/youtubei/v1/player/ad_break');
   assert.ok(ytRulePageAd, 'Must block youtube.com/pagead');
 });
+
+test('defuser-main sanitizes ytInitialData by stripping masthead and rich grid ad slots', () => {
+  const defuserMainCode = fs.readFileSync('content-scripts/defuser-main.js', 'utf8');
+  const dom = new JSDOM('<!DOCTYPE html><html><body></body></html>', { runScripts: 'dangerously' });
+  dom.window.eval(defuserMainCode);
+
+  dom.window.ytInitialData = {
+    contents: {
+      twoColumnBrowseResultsRenderer: {
+        tabs: [
+          {
+            tabRenderer: {
+              content: {
+                richGridRenderer: {
+                  masthead: { adSlotRenderer: {} },
+                  contents: [
+                    { adSlotRenderer: { id: 'ad-1' } },
+                    { richItemRenderer: { content: { videoRenderer: { id: 'v1' } } } }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  };
+
+  const richGrid = dom.window.ytInitialData.contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.richGridRenderer;
+  assert.equal(richGrid.masthead, undefined, 'Masthead ad must be removed');
+  assert.equal(richGrid.contents.length, 1, 'Only non-ad items should remain');
+  dom.window.close();
+});
+
+test('cosmetic-filter detects and removes YouTube masthead ad from DOM', () => {
+  const cosmeticFilterCode = fs.readFileSync('content-scripts/cosmetic-filter.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="masthead-ad" class="style-scope ytd-rich-grid-renderer">
+          <ytd-ad-slot-renderer class="style-scope ytd-rich-grid-renderer">
+            <video id="masthead-video"></video>
+          </ytd-ad-slot-renderer>
+        </div>
+      </body>
+    </html>`, { runScripts: 'dangerously' });
+
+  let blockedCount = 0;
+  dom.window.chrome = {
+    runtime: {
+      sendMessage: (msg) => {
+        if (msg.type === 'AD_BLOCKED') blockedCount += msg.count;
+        return Promise.resolve();
+      }
+    }
+  };
+
+  dom.window.eval(cosmeticFilterCode);
+
+  const mastheadEl = dom.window.document.getElementById('masthead-ad');
+  assert.equal(mastheadEl, null, 'Masthead ad element must be removed from the DOM');
+  assert.ok(blockedCount >= 1, 'Blocked masthead ad must be counted');
+  dom.window.close();
+});

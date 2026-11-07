@@ -240,6 +240,25 @@
     return data;
   }
 
+  function sanitizeYtBrowseData(data) {
+    if (!data || typeof data !== 'object') return data;
+    try {
+      const richGrid = data.contents?.twoColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.richGridRenderer;
+      if (richGrid) {
+        if (richGrid.masthead) delete richGrid.masthead;
+        if (Array.isArray(richGrid.contents)) {
+          richGrid.contents = richGrid.contents.filter(item => {
+            if (!item || typeof item !== 'object') return true;
+            return !item.richItemRenderer?.content?.adSlotRenderer &&
+                   !item.adSlotRenderer;
+          });
+        }
+      }
+      if (data.masthead) delete data.masthead;
+    } catch (e) {}
+    return data;
+  }
+
   // Intercept window.ytInitialPlayerResponse
   try {
     let _ytInitialPlayerResponse = sanitizeYtPlayerResponse(window.ytInitialPlayerResponse);
@@ -247,6 +266,19 @@
       get: () => _ytInitialPlayerResponse,
       set: (val) => {
         _ytInitialPlayerResponse = sanitizeYtPlayerResponse(val);
+      },
+      configurable: true,
+      enumerable: true
+    });
+  } catch (e) {}
+
+  // Intercept window.ytInitialData for home feed & masthead ads
+  try {
+    let _ytInitialData = sanitizeYtBrowseData(window.ytInitialData);
+    Object.defineProperty(window, 'ytInitialData', {
+      get: () => _ytInitialData,
+      set: (val) => {
+        _ytInitialData = sanitizeYtBrowseData(val);
       },
       configurable: true,
       enumerable: true
@@ -264,6 +296,9 @@
           if (url.includes('/youtubei/v1/player') || url.includes('/youtubei/v1/next') || result.adPlacements || result.playerAds) {
             sanitizeYtPlayerResponse(result);
           }
+          if (url.includes('/youtubei/v1/browse') || result.contents?.twoColumnBrowseResultsRenderer) {
+            sanitizeYtBrowseData(result);
+          }
         }
         return result;
       };
@@ -278,6 +313,9 @@
       if (result && typeof result === 'object') {
         if (result.adPlacements || result.playerAds || result.adSlots) {
           sanitizeYtPlayerResponse(result);
+        }
+        if (result.contents?.twoColumnBrowseResultsRenderer || (result.richGridRenderer && result.richGridRenderer.masthead)) {
+          sanitizeYtBrowseData(result);
         }
       }
       return result;

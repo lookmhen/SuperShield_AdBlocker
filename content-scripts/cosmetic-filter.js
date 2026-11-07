@@ -37,7 +37,33 @@
     'iframe[src*="smartadserver.com"]'
   ];
 
+  const YOUTUBE_AD_CONTAINER_SELECTORS = [
+    '#masthead-ad',
+    'ytd-rich-grid-renderer #masthead-ad',
+    'ytd-ad-slot-renderer',
+    'ytd-page-top-ad-layout-renderer',
+    'ytd-video-masthead-ad-v3-renderer',
+    'ytd-video-masthead-ad-primary-video-renderer',
+    'ytd-video-masthead-ad-advertiser-info-renderer',
+    '#masthead-player',
+    'ytd-player[context="WEB_PLAYER_CONTEXT_CONFIG_ID_KEVLAR_MASTHEAD_AD"]',
+    'ytd-in-feed-ad-layout-renderer',
+    'ytd-banner-promo-renderer',
+    'ytd-promoted-sparkles-web-renderer',
+    'ytd-promoted-video-renderer',
+    'ytd-statement-banner-renderer',
+    'ytd-mealbar-promo-renderer',
+    '#player-ads',
+    '.ytd-action-companion-ad-renderer',
+    'ytd-rich-item-renderer:has(ytd-ad-slot-renderer)'
+  ];
+
   let isEnabled = true;
+
+  // Set default active state immediately so cosmetic.css applies from the initial DOM frame
+  if (typeof document !== 'undefined' && document.documentElement && !document.documentElement.hasAttribute('data-supershield-disabled')) {
+    document.documentElement.setAttribute('data-supershield-active', 'true');
+  }
 
   function isExtensionContextValid() {
     try {
@@ -127,6 +153,38 @@
                 parent.style.setProperty('display', 'none', 'important');
               }
             }
+          } catch (err) {}
+        }
+      }
+    }
+
+    // Active sweep for YouTube masthead and in-feed ad elements
+    for (const ytSelector of YOUTUBE_AD_CONTAINER_SELECTORS) {
+      let ytElements = [];
+      try {
+        ytElements = document.querySelectorAll(ytSelector);
+      } catch (e) {
+        continue;
+      }
+      for (const el of ytElements) {
+        if (!el || el._supershieldHidden) continue;
+        el._supershieldHidden = true;
+        try {
+          const v = el.querySelector('video');
+          if (v) {
+            try { v.pause(); v.src = ''; } catch (err) {}
+          }
+          el.remove();
+          newlyBlocked++;
+        } catch (e) {
+          try {
+            el.setAttribute('data-supershield-hidden', 'true');
+            el.style.setProperty('display', 'none', 'important');
+            el.style.setProperty('visibility', 'hidden', 'important');
+            el.style.setProperty('height', '0px', 'important');
+            el.style.setProperty('min-height', '0px', 'important');
+            el.style.setProperty('pointer-events', 'none', 'important');
+            newlyBlocked++;
           } catch (err) {}
         }
       }
