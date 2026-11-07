@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "SuperShield AdBlocker",
+  "version": "1.0.0",
+  "description": "High-performance ad blocker with anti-adblock evasion, cosmetic banner hiding, and universal video ad skip.",
+  "permissions": [
+    "declarativeNetRequest",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ad_rules",
+        "enabled": true,
+        "path": "rules/ad-rules.json"
+      }
+    ]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-scripts/defuser-main.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "css": ["content-scripts/cosmetic.css"],
+      "js": [
+        "content-scripts/defuser-isolated.js",
+        "content-scripts/cosmetic-filter.js",
+        "content-scripts/video-blocker.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "surrogates/adsbygoogle.js",
+        "surrogates/prebid.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
