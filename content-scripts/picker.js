@@ -6,6 +6,7 @@
   let isPickerActive = false;
   let hoveredElement = null;
   let pickerBanner = null;
+  let pickerBlockedCount = 0;
 
   function isExtensionContextValid() {
     try {
@@ -514,6 +515,17 @@
     }
   }
 
+  function updatePickerBannerText() {
+    if (!pickerBanner) return;
+    const textSpan = pickerBanner.querySelector('.supershield-banner-text');
+    if (!textSpan) return;
+    if (pickerBlockedCount === 0) {
+      textSpan.innerHTML = `🎯 <strong>Element Picker Active:</strong> Click on any element to block it. Continue clicking to block more. Press <strong>[ESC]</strong> or click Exit when done.`;
+    } else {
+      textSpan.innerHTML = `🎯 <strong>Element Picker Active</strong> (${pickerBlockedCount} blocked): Click more elements to block, or press <strong>[ESC]</strong> to finish.`;
+    }
+  }
+
   // 6. Interactive Element Picker Mode
   function startElementPicker() {
     // Only the top-level window should launch the interactive picker
@@ -525,6 +537,7 @@
       stopElementPicker();
     }
     isPickerActive = true;
+    pickerBlockedCount = 0;
 
     // Clean up any stale banner
     const existing = document.getElementById('supershield-picker-banner');
@@ -555,7 +568,7 @@
       user-select: none !important;
     `;
     pickerBanner.innerHTML = `
-      <span style="pointer-events: none;">🎯 <strong>Element Picker Active:</strong> Click on any fake button, banner, or rogue overlay to block it permanently.</span>
+      <span class="supershield-banner-text" style="pointer-events: none;">🎯 <strong>Element Picker Active:</strong> Click on any element to block it. Continue clicking to block more. Press <strong>[ESC]</strong> or click Exit when done.</span>
       <button id="supershield-cancel-picker" type="button" style="background:#ef4444 !important;color:#ffffff !important;border:none !important;padding:8px 16px !important;border-radius:6px !important;cursor:pointer !important;font-weight:bold !important;font-size:13px !important;z-index:2147483647 !important;position:relative !important;">Exit [ESC]</button>
     `;
     (document.body || document.documentElement).appendChild(pickerBanner);
@@ -592,6 +605,7 @@
 
   function stopElementPicker() {
     isPickerActive = false;
+    pickerBlockedCount = 0;
     if (hoveredElement) {
       try {
         hoveredElement.style.outline = '';
@@ -619,6 +633,8 @@
     if (!isPickerActive) return;
     const target = e.target;
     if (!target || target === pickerBanner || pickerBanner?.contains(target)) return;
+    const toast = document.getElementById('supershield-toast');
+    if (target === toast || toast?.contains(target)) return;
 
     if (hoveredElement && hoveredElement !== target) {
       try {
@@ -653,12 +669,29 @@
       return;
     }
 
+    // Do not pick toast notification
+    const toast = document.getElementById('supershield-toast');
+    if (target === toast || toast?.contains(target)) {
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
 
+    // Clean up hover style on target before hiding
+    try {
+      target.style.outline = '';
+      target.style.backgroundColor = '';
+    } catch (err) {}
+    hoveredElement = null;
+
+    pickerBlockedCount++;
     blockAndSaveElement(target);
-    stopElementPicker();
+    updatePickerBannerText();
+
+    // Continuous selection: Keep picker active so the user can block multiple elements in sequence.
+    // The user can exit anytime by pressing [ESC] or clicking the Exit button.
     return false;
   }
 

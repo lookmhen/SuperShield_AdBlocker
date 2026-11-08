@@ -127,6 +127,68 @@ test('custom filters are automatically loaded and applied on startup', () => {
   dom.window.close();
 });
 
+test('element picker allows continuous multi-element blocking without exiting until Escape is pressed', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="ad-one" class="ad-item">Ad 1</div>
+        <div id="ad-two" class="ad-item">Ad 2</div>
+      </body>
+    </html>`, { runScripts: "dangerously" });
+
+  let savedStorage = {};
+  dom.window.chrome = {
+    storage: {
+      local: {
+        get: (k, cb) => cb(savedStorage),
+        set: (items, cb) => {
+          Object.assign(savedStorage, items);
+          if (cb) cb();
+        }
+      }
+    },
+    runtime: {
+      sendMessage: () => Promise.resolve(),
+      onMessage: { addListener: () => {} }
+    }
+  };
+
+  dom.window.eval(pickerCode);
+
+  dom.window.startElementPicker();
+  let banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.ok(banner, 'Picker banner must be present initially');
+
+  const ad1 = dom.window.document.getElementById('ad-one');
+  const ad2 = dom.window.document.getElementById('ad-two');
+
+  // Click first element
+  ad1.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(ad1.style.display, 'none', 'First element must be hidden');
+
+  // Verify picker is STILL ACTIVE
+  banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.ok(banner, 'Picker must remain active after blocking the first element');
+  assert.ok(banner.textContent.includes('1 blocked'), 'Banner must reflect blocked element count');
+
+  // Click second element continuously
+  ad2.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  assert.equal(ad2.style.display, 'none', 'Second element must be hidden');
+
+  // Verify picker is STILL ACTIVE after second block
+  banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.ok(banner, 'Picker must remain active after blocking the second element');
+  assert.ok(banner.textContent.includes('2 blocked'), 'Banner must reflect updated blocked count');
+
+  // Now press Escape to exit
+  dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+  banner = dom.window.document.getElementById('supershield-picker-banner');
+  assert.equal(banner, null, 'Picker banner must be removed when ESC is pressed');
+
+  dom.window.close();
+});
+
 test('element picker cancels and removes UI banner when Escape key is pressed', () => {
   const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="target">Content</div></body></html>', { runScripts: "dangerously" });
