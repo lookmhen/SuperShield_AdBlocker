@@ -323,3 +323,51 @@ test('forcePlayVideos fast-forwards ad video, clicks skip and custom_play_btn, a
 
   dom.window.close();
 });
+
+test('forcePlayVideos unlocks and plays the final content video with afs_ads in player', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="player_content" style="display: block;">
+          <div id="a4s" class="jwplayer jw-reset jw-state-idle">
+            <div class="jw-media jw-reset">
+              <video class="jw-video jw-reset" src="https://stream.provider.com/movie/master.m3u8"></video>
+            </div>
+            <div class="afs_ads ad-placement" style="width: 1px; height: 1px;">&nbsp;</div>
+          </div>
+          <button id="custom_play_btn" aria-label="Play content" class="v0x">Play</button>
+          <div class="loading-indicator" id="loading_ind" style="display:none;">กำลังโหลด...</div>
+          <button id="skip_btn" style="display: none;">ข้ามโฆษณา</button>
+        </div>
+      </body>
+    </html>`, { runScripts: "dangerously" });
+
+  const video = dom.window.document.querySelector('video');
+  Object.defineProperty(video, 'duration', { value: 7200, configurable: true, writable: true });
+  video.currentTime = 0;
+  video.playbackRate = 1;
+  video.muted = true;
+
+  let playCalled = false;
+  video.play = () => {
+    playCalled = true;
+    return Promise.resolve();
+  };
+
+  dom.window.chrome = {
+    storage: { local: { get: (k, cb) => cb({}), set: () => {} } },
+    runtime: { sendMessage: () => Promise.resolve() }
+  };
+
+  dom.window.eval(pickerCode);
+  const result = dom.window.forcePlayVideos();
+
+  assert.equal(result.unlocked, true, 'Force play must report unlocked');
+  assert.equal(playCalled, true, 'Final content video.play() must be called');
+  assert.equal(video.playbackRate, 1, 'Final content video must have 1.0 playback rate');
+  assert.equal(video.muted, false, 'Final content video must be unmuted');
+  assert.equal(video.currentTime, 0, 'Final content video currentTime must remain at start');
+
+  dom.window.close();
+});

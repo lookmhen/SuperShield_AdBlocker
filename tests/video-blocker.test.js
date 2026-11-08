@@ -143,3 +143,41 @@ test('video-blocker auto-skips custom player ad, fast-forwards watermelogic vide
 
   dom.window.close();
 });
+
+test('video-blocker does NOT fast-forward or mute the final content video even with afs_ads in the player', () => {
+  const videoBlockerCode = fs.readFileSync('content-scripts/video-blocker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="player_content" style="display: block;">
+          <div id="a4s" class="jwplayer jw-reset jw-state-idle">
+            <div class="jw-media jw-reset">
+              <video class="jw-video jw-reset" src="https://stream.provider.com/movie/master.m3u8"></video>
+            </div>
+            <div class="afs_ads ad-placement" style="width: 1px; height: 1px;">&nbsp;</div>
+          </div>
+          <button id="custom_play_btn" aria-label="Play content" class="v0x">Play</button>
+          <div class="loading-indicator" id="loading_ind" style="display:none;">กำลังโหลด...</div>
+          <button id="skip_btn" style="display: none;">ข้ามโฆษณา</button>
+        </div>
+      </body>
+    </html>`, { runScripts: "dangerously" });
+
+  const video = dom.window.document.querySelector('video');
+  Object.defineProperty(video, 'duration', { value: 7200, configurable: true, writable: true });
+  video.currentTime = 0;
+  video.playbackRate = 1;
+  video.muted = false;
+
+  dom.window.eval(videoBlockerCode);
+
+  // Simulate user pressing play on the real movie
+  video.dispatchEvent(new dom.window.Event('play'));
+  video.dispatchEvent(new dom.window.Event('timeupdate'));
+
+  assert.equal(video.playbackRate, 1, 'Final content video must maintain 1.0 playbackRate');
+  assert.equal(video.muted, false, 'Final content video must not be muted');
+  assert.equal(video.currentTime, 0, 'Final content video must not be jumped to the end');
+
+  dom.window.close();
+});

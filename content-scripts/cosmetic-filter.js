@@ -271,6 +271,9 @@
     if (/vjs-control|vjs-button|jw-control|jw-display-icon|jw-icon|plyr__control|dplayer-controller|dplayer-icon|art-control/i.test(cls)) return true;
     if (/vjs-big-play|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
 
+    // Custom player control buttons and play content triggers
+    if (el.closest?.('#custom_play_btn, [id*="custom_play" i], .v0x, [aria-label*="Play content" i]')) return true;
+
     return false;
   }
 

@@ -28,6 +28,38 @@
       set: () => {},
       configurable: true
     });
+
+    // BlockAdBlock / FuckAdBlock / SniffAdBlock API stubs
+    const FakeBlockAdBlock = function (options) {
+      if (options && typeof options === 'object') this.setOption(options);
+    };
+    FakeBlockAdBlock.prototype = {
+      init: function () { return this; },
+      check: function () { return true; },
+      clearEvent: function () { return this; },
+      on: function (detected, fn) {
+        if (!detected && typeof fn === 'function') {
+          try { setTimeout(fn, 1); } catch (e) {}
+        }
+        return this;
+      },
+      onDetected: function () { return this; },
+      onNotDetected: function (fn) {
+        if (typeof fn === 'function') {
+          try { setTimeout(fn, 1); } catch (e) {}
+        }
+        return this;
+      },
+      setOption: function () { return this; }
+    };
+
+    const fakeInstance = new FakeBlockAdBlock();
+    window.BlockAdBlock = FakeBlockAdBlock;
+    window.FuckAdBlock = FakeBlockAdBlock;
+    window.SniffAdBlock = FakeBlockAdBlock;
+    window.blockAdBlock = fakeInstance;
+    window.fuckAdBlock = fakeInstance;
+    window.sniffAdBlock = fakeInstance;
   } catch (e) {}
 
   // 2. Stub Google AdSense objects on window

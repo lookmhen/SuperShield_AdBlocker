@@ -301,7 +301,7 @@
     'button[class*="skip" i]'
   ];
 
-  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing|afs_ads|ad-placement)\b/i;
+  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing)\b/i;
   const AD_URL_REGEX = /(watermelogic\.com|doubleclick\.net|googlesyndication\.com|\/assets\/we\d+|\/video-ads?\/|\/ads?\/[a-z0-9_-]+\.mp4)/i;
 
   function isVisible(el) {
@@ -338,7 +338,7 @@
 
   function isAdVideo(video, container, playerContext) {
     if (!video) return false;
-    const ctx = playerContext || container?.parentElement || container || (typeof document !== 'undefined' ? document : null);
+    const ctx = playerContext || container?.parentElement || container;
 
     // 1. Direct video class markers
     const vCls = String(video.className || '');
@@ -351,12 +351,11 @@
     // 3. Container in active ad-showing state
     if (container) {
       const cCls = String(container.className || '');
-      if (/\b(ad-showing|ad-interrupting|ad-playing)\b/i.test(cCls)) return true;
+      if (/\b(ad-showing|ad-interrupting|ad-playing|jw-flag-ads)\b/i.test(cCls)) return true;
     }
 
-    // 4. Presence of an active skip button or ad placement markers alongside the video
+    // 4. Presence of an active skip button alongside the video
     if (ctx) {
-      const hasAdMarker = ctx.querySelector('.afs_ads, .ad-placement, #register_btn, [id*="register_btn" i]');
       for (const sel of SKIP_BUTTON_SELECTORS) {
         const btn = ctx.querySelector(sel);
         if (btn && isVisible(btn)) return true;
@@ -364,11 +363,10 @@
       const buttons = ctx.querySelectorAll('button, div[role="button"], a[role="button"]');
       for (const btn of buttons) {
         const txt = (btn.textContent || '').trim().toLowerCase();
-        if ((txt.includes('ข้ามโฆษณา') || txt.includes('skip ad')) && isVisible(btn)) {
+        if ((txt === 'ข้าม' || txt.includes('ข้ามโฆษณา') || txt.includes('ข้าม โฆษณา') || txt === 'skip' || txt.includes('skip ad')) && isVisible(btn)) {
           return true;
         }
       }
-      if (hasAdMarker && src) return true;
     }
 
     return false;
@@ -412,6 +410,9 @@
     // Standard player framework classes (VideoJS, JWPlayer, Plyr, DPlayer, Artplayer, Flowplayer)
     if (/vjs-control|vjs-button|jw-control|jw-display-icon|jw-icon|plyr__control|dplayer-controller|dplayer-icon|art-control/i.test(cls)) return true;
     if (/vjs-big-play|jw-icon-display|fp-play|dplayer-play|mejs__overlay-play/i.test(cls)) return true;
+
+    // Custom player control buttons and play content triggers
+    if (el.closest?.('#custom_play_btn, [id*="custom_play" i], .v0x, [aria-label*="Play content" i]')) return true;
 
     return false;
   }
@@ -509,7 +510,7 @@
             '[class*="fake" i], [id*="fake" i], ' +
             '[class*="trap" i], [id*="trap" i], ' +
             '[class*="click-trap" i], [id*="click-trap" i], ' +
-            '#register_btn, [id*="register_btn" i], .afs_ads, .ad-placement, ' +
+            '#register_btn, [id*="register_btn" i], ' +
             'div[style*="absolute"], div[style*="fixed"], a[target="_blank"]'
           );
 
@@ -523,7 +524,7 @@
 
             const isPositioned = el.style.position === 'absolute' || el.style.position === 'fixed' ||
                                  parseInt(el.style.zIndex, 10) > 0 ||
-                                 /overlay|fake|trap|ad-|sponsor|backdrop|click|register|afs_ads/i.test(el.className + ' ' + el.id) ||
+                                 /overlay|fake|trap|ad-|sponsor|backdrop|click|register/i.test(el.className + ' ' + el.id) ||
                                  (el.tagName === 'A' && el.target === '_blank');
 
             if (isPositioned) {

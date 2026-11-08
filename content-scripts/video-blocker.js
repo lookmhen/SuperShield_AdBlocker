@@ -38,7 +38,7 @@
   ];
 
   // Use strict word boundary patterns to prevent matching video-adapter, etc.
-  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing|afs_ads|ad-placement)\b/i;
+  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing)\b/i;
   const AD_URL_REGEX = /(watermelogic\.com|doubleclick\.net|googlesyndication\.com|\/assets\/we\d+|\/video-ads?\/|\/ads?\/[a-z0-9_-]+\.mp4)/i;
 
   let isEnabled = true;
@@ -140,11 +140,12 @@
     for (const el of allButtons) {
       const text = (el.textContent || '').trim().toLowerCase();
       if (
+        text === 'ข้าม' ||
         text.includes('ข้ามโฆษณา') ||
-        text.includes('ข้าม') ||
+        text.includes('ข้าม โฆษณา') ||
+        text === 'skip' ||
         text.includes('skip ad') ||
         text.includes('skip advertisement') ||
-        text === 'skip' ||
         text === 'close ad'
       ) {
         if (isVisible(el)) {
@@ -160,27 +161,29 @@
   function checkIsAdVideo(video) {
     if (!video) return false;
     const container = video.closest('.custom-stream-player, .jwplayer, [class*="player"], [id*="player"]') || video.parentElement;
-    const playerContext = container?.parentElement || container || document;
+    const playerContext = container?.parentElement || container;
 
     if (video.className && typeof video.className === 'string' && AD_CLASS_REGEX.test(video.className)) return true;
     if (container && container.className && typeof container.className === 'string' && AD_CLASS_REGEX.test(container.className)) return true;
-    if (container && container.querySelector('.video-ad-overlay, [class*="ad-overlay"], [id*="ad-overlay"], .afs_ads, .ad-placement')) return true;
+    if (container && container.querySelector('.video-ad-overlay, .ytp-ad-player-overlay, [class*="ad-overlay"]')) return true;
 
     const videoSrc = (video.src || video.currentSrc || '').toLowerCase();
     if (videoSrc && AD_URL_REGEX.test(videoSrc)) return true;
 
-    // Check if visible skip button exists in playerContext or document
-    for (const sel of UNIVERSAL_SKIP_SELECTORS) {
-      const skipBtn = playerContext.querySelector(sel) || document.querySelector(sel);
-      if (skipBtn && isVisible(skipBtn)) return true;
-    }
+    // Check if visible skip button exists specifically inside playerContext
+    if (playerContext) {
+      for (const sel of UNIVERSAL_SKIP_SELECTORS) {
+        const skipBtn = playerContext.querySelector(sel);
+        if (skipBtn && isVisible(skipBtn)) return true;
+      }
 
-    // Check buttons with text
-    const buttons = playerContext.querySelectorAll('button, div[role="button"]');
-    for (const btn of buttons) {
-      const txt = (btn.textContent || '').trim().toLowerCase();
-      if ((txt.includes('ข้ามโฆษณา') || txt.includes('skip ad')) && isVisible(btn)) {
-        return true;
+      // Check buttons with text inside playerContext
+      const buttons = playerContext.querySelectorAll('button, div[role="button"], a[role="button"]');
+      for (const btn of buttons) {
+        const txt = (btn.textContent || '').trim().toLowerCase();
+        if ((txt === 'ข้าม' || txt.includes('ข้ามโฆษณา') || txt.includes('ข้าม โฆษณา') || txt === 'skip' || txt.includes('skip ad')) && isVisible(btn)) {
+          return true;
+        }
       }
     }
 
@@ -346,15 +349,6 @@
         const regBtn = playerContext.querySelector('#register_btn, [id*="register_btn" i]');
         if (regBtn) {
           try { regBtn.style.display = 'none'; } catch (e) {}
-        }
-
-        // Auto click custom play button once ready
-        const customPlayBtn = playerContext.querySelector('#custom_play_btn, [aria-label*="Play content" i]');
-        if (customPlayBtn && isVisible(customPlayBtn) && !customPlayBtn._supershieldClicked) {
-          customPlayBtn._supershieldClicked = true;
-          setTimeout(() => {
-            triggerClick(customPlayBtn);
-          }, 100);
         }
 
         if (!video._supershieldCounted) {
