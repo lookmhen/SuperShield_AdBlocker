@@ -11,6 +11,9 @@
     try {
       if (typeof chrome === 'undefined' || !chrome.runtime) return true;
       const id = chrome.runtime.id;
+      if (typeof chrome.runtime.getURL === 'function') {
+        chrome.runtime.getURL('');
+      }
       return true;
     } catch (e) {
       return false;
@@ -116,81 +119,93 @@
 
   // 3. Apply Stored Custom Filters
   function applyCustomFilters() {
+    if (!isExtensionContextValid()) {
+      if (customObserver) customObserver.disconnect();
+      return;
+    }
     const hostname = getHostname();
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
 
-    chrome.storage.local.get(['customFilters', 'customCosmeticFilters', 'customGlobalFilters', 'enabled'], (res) => {
-      let styleEl = document.getElementById('supershield-custom-filters');
-      if (res && res.enabled === false) {
-        if (styleEl) styleEl.remove();
-        return;
-      }
-
-      const pickerFilters = res?.customFilters?.[hostname] || [];
-      const subFilters = res?.customCosmeticFilters?.[hostname] || [];
-      const globalFilters = res?.customGlobalFilters || [];
-
-      // Check subdomains matching (e.g. m.youtube.com matches youtube.com)
-      const domainMatches = [];
-      if (res?.customCosmeticFilters) {
-        for (const [dom, selectors] of Object.entries(res.customCosmeticFilters)) {
-          if (hostname.endsWith('.' + dom)) {
-            domainMatches.push(...selectors);
-          }
-        }
-      }
-
-      const combined = Array.from(new Set([...pickerFilters, ...subFilters, ...domainMatches, ...globalFilters]));
-      if (combined.length === 0) {
-        if (styleEl) styleEl.remove();
-        return;
-      }
-
-      if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = 'supershield-custom-filters';
-        (document.head || document.documentElement).appendChild(styleEl);
-      }
-
-      const validRules = [];
-      for (const sel of combined) {
+    try {
+      chrome.storage.local.get(['customFilters', 'customCosmeticFilters', 'customGlobalFilters', 'enabled'], (res) => {
         try {
-          if (sel && sel.length < 2000) {
-            validRules.push(`${sel} { display: none !important; visibility: hidden !important; height: 0 !important; }`);
+          if (!isExtensionContextValid() || chrome.runtime?.lastError) return;
+          let styleEl = document.getElementById('supershield-custom-filters');
+          if (res && res.enabled === false) {
+            if (styleEl) styleEl.remove();
+            return;
           }
-        } catch (e) {}
-      }
 
-      styleEl.textContent = validRules.join('\n');
+          const pickerFilters = res?.customFilters?.[hostname] || [];
+          const subFilters = res?.customCosmeticFilters?.[hostname] || [];
+          const globalFilters = res?.customGlobalFilters || [];
 
-      // Also apply inline style to currently matched elements and report block count
-      let newlyHidden = 0;
-      for (const sel of combined) {
-        try {
-          if (sel && sel.length < 2000) {
-            const els = document.querySelectorAll(sel);
-            for (const el of els) {
-              if (!el._supershieldCustomHidden) {
-                el._supershieldCustomHidden = true;
-                el.setAttribute('data-supershield-custom-hidden', 'true');
-                el.style.setProperty('display', 'none', 'important');
-                el.style.setProperty('visibility', 'hidden', 'important');
-                el.style.setProperty('height', '0px', 'important');
-                newlyHidden++;
+          // Check subdomains matching (e.g. m.youtube.com matches youtube.com)
+          const domainMatches = [];
+          if (res?.customCosmeticFilters) {
+            for (const [dom, selectors] of Object.entries(res.customCosmeticFilters)) {
+              if (hostname.endsWith('.' + dom)) {
+                domainMatches.push(...selectors);
               }
             }
           }
-        } catch (e) {}
-      }
 
-      if (newlyHidden > 0) {
-        safeSendMessage({ type: 'AD_BLOCKED', count: newlyHidden });
-      }
-    });
+          const combined = Array.from(new Set([...pickerFilters, ...subFilters, ...domainMatches, ...globalFilters]));
+          if (combined.length === 0) {
+            if (styleEl) styleEl.remove();
+            return;
+          }
+
+          if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = 'supershield-custom-filters';
+            (document.head || document.documentElement).appendChild(styleEl);
+          }
+
+          const validRules = [];
+          for (const sel of combined) {
+            try {
+              if (sel && sel.length < 2000) {
+                validRules.push(`${sel} { display: none !important; visibility: hidden !important; height: 0 !important; }`);
+              }
+            } catch (e) {}
+          }
+
+          styleEl.textContent = validRules.join('\n');
+
+          // Also apply inline style to currently matched elements and report block count
+          let newlyHidden = 0;
+          for (const sel of combined) {
+            try {
+              if (sel && sel.length < 2000) {
+                const els = document.querySelectorAll(sel);
+                for (const el of els) {
+                  if (!el._supershieldCustomHidden) {
+                    el._supershieldCustomHidden = true;
+                    el.setAttribute('data-supershield-custom-hidden', 'true');
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('visibility', 'hidden', 'important');
+                    el.style.setProperty('height', '0px', 'important');
+                    newlyHidden++;
+                  }
+                }
+              }
+            } catch (e) {}
+          }
+
+          if (newlyHidden > 0) {
+            safeSendMessage({ type: 'AD_BLOCKED', count: newlyHidden });
+          }
+        } catch (innerErr) {}
+      });
+    } catch (e) {
+      if (customObserver) customObserver.disconnect();
+    }
   }
 
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
+      if (!isExtensionContextValid()) return;
       if (
         area === 'local' &&
         (changes.customFilters ||
@@ -213,7 +228,11 @@
     if (!customDebounce) {
       customDebounce = setTimeout(() => {
         customDebounce = null;
-        if (isExtensionContextValid()) applyCustomFilters();
+        if (isExtensionContextValid()) {
+          applyCustomFilters();
+        } else if (customObserver) {
+          customObserver.disconnect();
+        }
       }, 150);
       if (customDebounce && typeof customDebounce.unref === 'function') {
         customDebounce.unref();

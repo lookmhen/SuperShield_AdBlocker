@@ -38,6 +38,9 @@
     try {
       if (typeof chrome === 'undefined' || !chrome.runtime) return true;
       const id = chrome.runtime.id;
+      if (typeof chrome.runtime.getURL === 'function') {
+        chrome.runtime.getURL('');
+      }
       return true;
     } catch (e) {
       return false;
