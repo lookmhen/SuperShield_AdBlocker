@@ -97,19 +97,26 @@
     const hostname = getHostname();
 
     if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-      chrome.storage.local.get('customFilters', (res) => {
-        const customFilters = res?.customFilters || {};
-        if (!customFilters[hostname]) {
-          customFilters[hostname] = [];
-        }
-        if (!customFilters[hostname].includes(selector)) {
-          customFilters[hostname].push(selector);
-        }
-        chrome.storage.local.set({ customFilters }, () => {
-          showNotification(`Blocked & Saved: ${selector}`);
-          applyCustomFilters();
+      try {
+        chrome.storage.local.get('customFilters', (res) => {
+          try {
+            if (!isExtensionContextValid()) return;
+            const customFilters = res?.customFilters || {};
+            if (!customFilters[hostname]) {
+              customFilters[hostname] = [];
+            }
+            if (!customFilters[hostname].includes(selector)) {
+              customFilters[hostname].push(selector);
+            }
+            chrome.storage.local.set({ customFilters }, () => {
+              try {
+                showNotification(`Blocked & Saved: ${selector}`);
+                applyCustomFilters();
+              } catch (e) {}
+            });
+          } catch (e) {}
         });
-      });
+      } catch (e) {}
 
       safeSendMessage({ type: 'AD_BLOCKED', count: 1 });
     } else {
