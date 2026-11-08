@@ -163,16 +163,28 @@
 
       styleEl.textContent = validRules.join('\n');
 
-      // Also apply inline style to currently matched elements
+      // Also apply inline style to currently matched elements and report block count
+      let newlyHidden = 0;
       for (const sel of combined) {
         try {
           if (sel && sel.length < 2000) {
             const els = document.querySelectorAll(sel);
             for (const el of els) {
-              el.style.setProperty('display', 'none', 'important');
+              if (!el._supershieldCustomHidden) {
+                el._supershieldCustomHidden = true;
+                el.setAttribute('data-supershield-custom-hidden', 'true');
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('visibility', 'hidden', 'important');
+                el.style.setProperty('height', '0px', 'important');
+                newlyHidden++;
+              }
             }
           }
         } catch (e) {}
+      }
+
+      if (newlyHidden > 0) {
+        safeSendMessage({ type: 'AD_BLOCKED', count: newlyHidden });
       }
     });
   }
@@ -189,6 +201,30 @@
         applyCustomFilters();
       }
     });
+  }
+
+  // Observe dynamically inserted elements to apply custom/subscription cosmetic rules
+  let customDebounce = null;
+  const customObserver = typeof MutationObserver !== 'undefined' ? new MutationObserver(() => {
+    if (!isExtensionContextValid()) {
+      customObserver.disconnect();
+      return;
+    }
+    if (!customDebounce) {
+      customDebounce = setTimeout(() => {
+        customDebounce = null;
+        if (isExtensionContextValid()) applyCustomFilters();
+      }, 150);
+      if (customDebounce && typeof customDebounce.unref === 'function') {
+        customDebounce.unref();
+      }
+    }
+  }) : null;
+
+  if (customObserver && typeof document !== 'undefined' && document.documentElement) {
+    try {
+      customObserver.observe(document.documentElement, { childList: true, subtree: true });
+    } catch (e) {}
   }
 
   // 4. Force Play & Unlock Video Action (Universal Player Engine)

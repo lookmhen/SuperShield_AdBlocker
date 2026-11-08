@@ -1,6 +1,8 @@
 // tests/custom-blocklists.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { JSDOM } from 'jsdom';
 import {
   parseBlocklist,
   createDnrRules,
@@ -234,4 +236,55 @@ test('parseBlocklist parses real-world Thai adblock list correctly', () => {
   const { domainFilters } = extractCosmeticFilters(parsed.cosmeticRules);
   assert.deepEqual(domainFilters['movie44.com'], ['.full']);
   assert.ok(domainFilters['doomovie-hd.vip'].includes('.header-banana_big_tall'));
+});
+
+test('applyCustomFilters hides elements matching subscription cosmetic rules and sends AD_BLOCKED counter message', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="sub-ad-banner" class="header-ad-banner">Ad</div>
+        <div class="global-floating-ad">Floating Ad</div>
+      </body>
+    </html>`, { runScripts: "dangerously", url: "https://movie44.com/watch" });
+
+  let sentMessages = [];
+  dom.window.chrome = {
+    storage: {
+      local: {
+        get: (keys, cb) => cb({
+          enabled: true,
+          customFilters: {},
+          customCosmeticFilters: {
+            'movie44.com': ['.header-ad-banner']
+          },
+          customGlobalFilters: ['.global-floating-ad']
+        }),
+        set: () => {}
+      },
+      onChanged: { addListener: () => {} }
+    },
+    runtime: {
+      id: 'mock-extension-id',
+      sendMessage: (msg) => {
+        sentMessages.push(msg);
+        return Promise.resolve();
+      }
+    }
+  };
+
+  dom.window.eval(pickerCode);
+
+  const banner = dom.window.document.getElementById('sub-ad-banner');
+  const floating = dom.window.document.querySelector('.global-floating-ad');
+
+  assert.equal(banner.style.display, 'none');
+  assert.equal(floating.style.display, 'none');
+
+  // Verify that AD_BLOCKED message was sent with count: 2
+  const adBlockedMsg = sentMessages.find(m => m.type === 'AD_BLOCKED');
+  assert.ok(adBlockedMsg, 'Should send AD_BLOCKED message');
+  assert.equal(adBlockedMsg.count, 2, 'Should count both blocked elements');
+
+  dom.window.close();
 });
