@@ -260,3 +260,257 @@ input:checked + .slider:before {
   color: var(--text-muted);
   padding-top: 2px;
 }
+
+/* Custom Blocklists & Subscriptions Section */
+.custom-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.custom-accordion-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: var(--text-main);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.custom-accordion-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.accordion-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accordion-icon {
+  font-size: 14px;
+}
+
+.accordion-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.accordion-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-mini {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.accordion-arrow {
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.accordion-arrow.open {
+  transform: rotate(90deg);
+}
+
+.custom-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.custom-subcard {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.subcard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.subcard-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.subcard-count {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.custom-textarea {
+  width: 100%;
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 8px;
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  user-select: text;
+}
+
+.custom-textarea:focus {
+  border-color: var(--primary);
+}
+
+.action-row {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-action {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #0f172a;
+}
+
+.btn-primary:hover {
+  background: #7dd3fc;
+}
+
+.btn-secondary {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-muted);
+}
+
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.input-action-row {
+  display: flex;
+  gap: 6px;
+}
+
+.custom-input {
+  flex: 1;
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 11px;
+  padding: 6px 8px;
+  outline: none;
+  min-width: 0;
+  user-select: text;
+}
+
+.custom-input:focus {
+  border-color: var(--primary);
+}
+
+.feedback-msg {
+  font-size: 10px;
+  min-height: 14px;
+}
+
+.feedback-msg.success {
+  color: var(--success);
+}
+
+.feedback-msg.error {
+  color: var(--danger);
+}
+
+.feedback-msg.loading {
+  color: var(--primary);
+}
+
+.subscriptions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.sub-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.sub-item-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 2px;
+}
+
+.sub-item-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.sub-item-count {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.sub-item-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.sub-item-remove:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+}

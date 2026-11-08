@@ -119,15 +119,32 @@
     const hostname = getHostname();
     if (typeof chrome === 'undefined' || !chrome.storage?.local) return;
 
-    chrome.storage.local.get(['customFilters', 'enabled'], (res) => {
+    chrome.storage.local.get(['customFilters', 'customCosmeticFilters', 'customGlobalFilters', 'enabled'], (res) => {
       let styleEl = document.getElementById('supershield-custom-filters');
       if (res && res.enabled === false) {
         if (styleEl) styleEl.remove();
         return;
       }
 
-      const filters = res?.customFilters?.[hostname] || [];
-      if (!Array.isArray(filters) || filters.length === 0) return;
+      const pickerFilters = res?.customFilters?.[hostname] || [];
+      const subFilters = res?.customCosmeticFilters?.[hostname] || [];
+      const globalFilters = res?.customGlobalFilters || [];
+
+      // Check subdomains matching (e.g. m.youtube.com matches youtube.com)
+      const domainMatches = [];
+      if (res?.customCosmeticFilters) {
+        for (const [dom, selectors] of Object.entries(res.customCosmeticFilters)) {
+          if (hostname.endsWith('.' + dom)) {
+            domainMatches.push(...selectors);
+          }
+        }
+      }
+
+      const combined = Array.from(new Set([...pickerFilters, ...subFilters, ...domainMatches, ...globalFilters]));
+      if (combined.length === 0) {
+        if (styleEl) styleEl.remove();
+        return;
+      }
 
       if (!styleEl) {
         styleEl = document.createElement('style');
@@ -135,15 +152,25 @@
         (document.head || document.documentElement).appendChild(styleEl);
       }
 
-      const cssRules = filters.map(sel => `${sel} { display: none !important; visibility: hidden !important; height: 0 !important; }`).join('\n');
-      styleEl.textContent = cssRules;
+      const validRules = [];
+      for (const sel of combined) {
+        try {
+          if (sel && sel.length < 2000) {
+            validRules.push(`${sel} { display: none !important; visibility: hidden !important; height: 0 !important; }`);
+          }
+        } catch (e) {}
+      }
+
+      styleEl.textContent = validRules.join('\n');
 
       // Also apply inline style to currently matched elements
-      for (const sel of filters) {
+      for (const sel of combined) {
         try {
-          const els = document.querySelectorAll(sel);
-          for (const el of els) {
-            el.style.setProperty('display', 'none', 'important');
+          if (sel && sel.length < 2000) {
+            const els = document.querySelectorAll(sel);
+            for (const el of els) {
+              el.style.setProperty('display', 'none', 'important');
+            }
           }
         } catch (e) {}
       }
@@ -152,7 +179,13 @@
 
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === 'local' && (changes.customFilters || changes.enabled !== undefined)) {
+      if (
+        area === 'local' &&
+        (changes.customFilters ||
+          changes.customCosmeticFilters ||
+          changes.customGlobalFilters ||
+          changes.enabled !== undefined)
+      ) {
         applyCustomFilters();
       }
     });

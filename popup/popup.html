@@ -71,6 +71,51 @@
       <button id="btn-clear-rules" class="btn-clear" style="display: none;">Clear Rules</button>
     </div>
 
+    <!-- Custom Blocklists & Subscriptions Panel -->
+    <section class="custom-section">
+      <button id="btn-toggle-custom-panel" class="custom-accordion-btn" type="button">
+        <div class="accordion-left">
+          <span class="accordion-icon">🛡️</span>
+          <span class="accordion-title">Custom Rules & Lists</span>
+        </div>
+        <div class="accordion-right">
+          <span id="custom-total-badge" class="badge-mini">0</span>
+          <span id="custom-panel-arrow" class="accordion-arrow">▸</span>
+        </div>
+      </button>
+
+      <div id="custom-panel-body" class="custom-panel-body" style="display: none;">
+        <!-- Multi-line Rules Card -->
+        <div class="custom-subcard">
+          <div class="subcard-header">
+            <span class="subcard-title">Custom Rules (one per line)</span>
+            <span id="custom-user-count" class="subcard-count">0 rules</span>
+          </div>
+          <textarea id="custom-rules-textarea" class="custom-textarea" rows="4" placeholder="example-tracker.com&#10;||bad-ads.net^&#10;0.0.0.0 popup-ad.org&#10;movie44.com##.full"></textarea>
+          <div class="action-row">
+            <button id="btn-save-custom-rules" class="btn-action btn-primary" type="button">Save Rules</button>
+            <button id="btn-clear-custom-rules" class="btn-action btn-secondary" type="button">Clear</button>
+          </div>
+          <div id="custom-rules-feedback" class="feedback-msg"></div>
+        </div>
+
+        <!-- Subscription URL Card -->
+        <div class="custom-subcard">
+          <div class="subcard-header">
+            <span class="subcard-title">Subscribe to List URL</span>
+          </div>
+          <div class="input-action-row">
+            <input type="url" id="subscription-url-input" class="custom-input" placeholder="https://raw.githubusercontent.com/.../list.txt" />
+            <button id="btn-add-subscription" class="btn-action btn-primary" type="button">Add</button>
+          </div>
+          <div id="sub-feedback" class="feedback-msg"></div>
+
+          <!-- Subscription List items -->
+          <div id="subscriptions-container" class="subscriptions-container"></div>
+        </div>
+      </div>
+    </section>
+
     <footer class="footer">
       <span>Auto-skip & Stealth Active</span>
     </footer>
