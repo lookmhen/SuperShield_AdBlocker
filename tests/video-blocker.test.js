@@ -101,3 +101,45 @@ test('video-blocker safely handles Extension context invalidated without throwin
 
   dom.window.close();
 });
+
+test('video-blocker auto-skips custom player ad, fast-forwards watermelogic video, and clicks Thai skip button #skip_btn', () => {
+  const videoBlockerCode = fs.readFileSync('content-scripts/video-blocker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="player_content" style="display: block;">
+          <div id="a4s" class="jwplayer jw-reset jw-state-playing">
+            <div class="jw-media jw-reset">
+              <video class="jw-video jw-reset" src="https://flswa.watermelogic.com/assets/we356.mp4"></video>
+            </div>
+            <div class="afs_ads ad-placement" style="width: 1px; height: 1px;">&nbsp;</div>
+          </div>
+          <button id="custom_play_btn" aria-label="Play content" class="v0x">Play</button>
+          <div class="loading-indicator" id="loading_ind">กำลังโหลด...</div>
+          <button id="skip_btn" style="display: block; cursor: pointer;">ข้ามโฆษณา</button>
+          <button id="register_btn" style="display: block;">สมัครสมาชิก กด!</button>
+        </div>
+      </body>
+    </html>`, { runScripts: "dangerously" });
+
+  const video = dom.window.document.querySelector('video');
+  Object.defineProperty(video, 'duration', { value: 30, configurable: true, writable: true });
+  video.currentTime = 0;
+  video.playbackRate = 1;
+  video.muted = false;
+
+  let skipClicked = false;
+  dom.window.document.getElementById('skip_btn').addEventListener('click', () => {
+    skipClicked = true;
+  });
+
+  dom.window.eval(videoBlockerCode);
+
+  assert.equal(video.playbackRate, 16, 'Ad video must be accelerated to 16x');
+  assert.equal(video.muted, true, 'Ad video must be muted');
+  assert.equal(video.currentTime, 30, 'Ad video must be skipped to end');
+  assert.equal(skipClicked, true, 'Skip button #skip_btn must be auto clicked');
+  assert.equal(dom.window.document.getElementById('register_btn').style.display, 'none', 'Register button must be hidden');
+
+  dom.window.close();
+});

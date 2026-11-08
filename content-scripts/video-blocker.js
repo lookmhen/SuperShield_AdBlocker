@@ -19,6 +19,12 @@
   ];
 
   const UNIVERSAL_SKIP_SELECTORS = [
+    '#skip_btn',
+    '#skip-btn',
+    '#skipButton',
+    'button[id*="skip" i]',
+    'div[id*="skip" i]',
+    'a[id*="skip" i]',
     '[class*="skip-button" i]',
     '[class*="skip-ad" i]',
     '[class*="ad-skip" i]',
@@ -26,13 +32,48 @@
     '[id*="ad-skip" i]',
     '[aria-label*="skip" i]',
     '.skip-btn',
-    '.skip-button'
+    '.skip-button',
+    '.skip_btn',
+    'button[class*="skip" i]'
   ];
 
   // Use strict word boundary patterns to prevent matching video-adapter, etc.
-  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing)\b/i;
+  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing|afs_ads|ad-placement)\b/i;
+  const AD_URL_REGEX = /(watermelogic\.com|doubleclick\.net|googlesyndication\.com|\/assets\/we\d+|\/video-ads?\/|\/ads?\/[a-z0-9_-]+\.mp4)/i;
 
   let isEnabled = true;
+
+  function isVisible(el) {
+    if (!el) return false;
+    try {
+      if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) {
+        return false;
+      }
+      if (typeof window !== 'undefined' && window.getComputedStyle) {
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+          return false;
+        }
+      }
+      return true;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function triggerClick(el) {
+    if (!el) return;
+    try {
+      el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } catch (e) {}
+    try {
+      if (typeof el.click === 'function') el.click();
+      if (typeof el.onclick === 'function') el.onclick();
+    } catch (e) {}
+  }
 
   function isExtensionContextValid() {
     try {
@@ -61,41 +102,89 @@
     let skipped = false;
     const targetRoot = root || document;
 
-    // YouTube selectors
+    // 1. YouTube selectors
     for (const sel of YT_SKIP_SELECTORS) {
       const btn = targetRoot.querySelector(sel);
-      if (btn && typeof btn.click === 'function') {
-        try {
-          btn.click();
-          skipped = true;
-        } catch (e) {}
+      if (btn && isVisible(btn)) {
+        triggerClick(btn);
+        skipped = true;
       }
     }
 
-    // Universal selectors
+    // 2. Universal selectors
     for (const sel of UNIVERSAL_SKIP_SELECTORS) {
-      const btn = targetRoot.querySelector(sel);
-      if (btn && typeof btn.click === 'function') {
-        try {
-          btn.click();
+      const btns = targetRoot.querySelectorAll(sel);
+      for (const btn of btns) {
+        if (isVisible(btn)) {
+          triggerClick(btn);
           skipped = true;
-        } catch (e) {}
+        }
       }
     }
 
-    // Text-based fallback search (scoped to player container when available)
-    const allButtons = targetRoot.querySelectorAll('button, div[role="button"], a[role="button"]');
+    // Also check document root so sibling skip buttons are always found
+    if (targetRoot !== document) {
+      for (const sel of UNIVERSAL_SKIP_SELECTORS) {
+        const btns = document.querySelectorAll(sel);
+        for (const btn of btns) {
+          if (isVisible(btn)) {
+            triggerClick(btn);
+            skipped = true;
+          }
+        }
+      }
+    }
+
+    // 3. Text-based fallback search
+    const allButtons = (targetRoot === document ? targetRoot : document).querySelectorAll('button, div[role="button"], a[role="button"], [class*="btn" i]');
     for (const el of allButtons) {
       const text = (el.textContent || '').trim().toLowerCase();
-      if (text === 'skip' || text === 'skip ad' || text === 'ข้าม' || text === 'ข้ามโฆษณา' || text === 'close ad') {
-        try {
-          el.click();
+      if (
+        text.includes('ข้ามโฆษณา') ||
+        text.includes('ข้าม') ||
+        text.includes('skip ad') ||
+        text.includes('skip advertisement') ||
+        text === 'skip' ||
+        text === 'close ad'
+      ) {
+        if (isVisible(el)) {
+          triggerClick(el);
           skipped = true;
-        } catch (e) {}
+        }
       }
     }
 
     return skipped;
+  }
+
+  function checkIsAdVideo(video) {
+    if (!video) return false;
+    const container = video.closest('.custom-stream-player, .jwplayer, [class*="player"], [id*="player"]') || video.parentElement;
+    const playerContext = container?.parentElement || container || document;
+
+    if (video.className && typeof video.className === 'string' && AD_CLASS_REGEX.test(video.className)) return true;
+    if (container && container.className && typeof container.className === 'string' && AD_CLASS_REGEX.test(container.className)) return true;
+    if (container && container.querySelector('.video-ad-overlay, [class*="ad-overlay"], [id*="ad-overlay"], .afs_ads, .ad-placement')) return true;
+
+    const videoSrc = (video.src || video.currentSrc || '').toLowerCase();
+    if (videoSrc && AD_URL_REGEX.test(videoSrc)) return true;
+
+    // Check if visible skip button exists in playerContext or document
+    for (const sel of UNIVERSAL_SKIP_SELECTORS) {
+      const skipBtn = playerContext.querySelector(sel) || document.querySelector(sel);
+      if (skipBtn && isVisible(skipBtn)) return true;
+    }
+
+    // Check buttons with text
+    const buttons = playerContext.querySelectorAll('button, div[role="button"]');
+    for (const btn of buttons) {
+      const txt = (btn.textContent || '').trim().toLowerCase();
+      if ((txt.includes('ข้ามโฆษณา') || txt.includes('skip ad')) && isVisible(btn)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function bindVideoEvents(video) {
@@ -145,11 +234,9 @@
           } catch (e) {}
         }
       } else {
-        const container = video.closest('.custom-stream-player, [class*="player"], [id*="player"]') || video.parentElement;
-        let isAd = false;
-        if (video.className && typeof video.className === 'string' && AD_CLASS_REGEX.test(video.className)) isAd = true;
-        if (container && container.className && typeof container.className === 'string' && AD_CLASS_REGEX.test(container.className)) isAd = true;
-        if (container && container.querySelector('.video-ad-overlay, [class*="ad-overlay"], [id*="ad-overlay"]')) isAd = true;
+        const container = video.closest('.custom-stream-player, .jwplayer, [class*="player"], [id*="player"]') || video.parentElement;
+        const playerContext = container?.parentElement || container || document;
+        const isAd = checkIsAdVideo(video);
 
         if (isAd) {
           try {
@@ -163,7 +250,7 @@
               video.currentTime = video.duration;
             }
           } catch (e) {}
-          clickSkipButtons(container || document);
+          clickSkipButtons(playerContext);
           if (!video._supershieldCounted) {
             video._supershieldCounted = true;
             safeSendMessage({ type: 'VIDEO_AD_SKIPPED', count: 1 });
@@ -237,19 +324,9 @@
       if (ytPlayer && ytPlayer.contains(video)) continue; // Handled above
       bindVideoEvents(video);
 
-      const container = video.closest('.custom-stream-player, [class*="player"], [id*="player"]') || video.parentElement;
-      let isAd = false;
-
-      // Test class patterns with word boundaries
-      if (video.className && typeof video.className === 'string' && AD_CLASS_REGEX.test(video.className)) {
-        isAd = true;
-      }
-      if (container && container.className && typeof container.className === 'string' && AD_CLASS_REGEX.test(container.className)) {
-        isAd = true;
-      }
-      if (container && container.querySelector('.video-ad-overlay, [class*="ad-overlay"], [id*="ad-overlay"]')) {
-        isAd = true;
-      }
+      const container = video.closest('.custom-stream-player, .jwplayer, [class*="player"], [id*="player"]') || video.parentElement;
+      const playerContext = container?.parentElement || container || document;
+      const isAd = checkIsAdVideo(video);
 
       if (isAd) {
         try {
@@ -261,8 +338,23 @@
           }
         } catch (e) {}
 
-        if (clickSkipButtons(container || document)) {
+        if (clickSkipButtons(playerContext)) {
           skippedAny = true;
+        }
+
+        // Hide predatory registration buttons
+        const regBtn = playerContext.querySelector('#register_btn, [id*="register_btn" i]');
+        if (regBtn) {
+          try { regBtn.style.display = 'none'; } catch (e) {}
+        }
+
+        // Auto click custom play button once ready
+        const customPlayBtn = playerContext.querySelector('#custom_play_btn, [aria-label*="Play content" i]');
+        if (customPlayBtn && isVisible(customPlayBtn) && !customPlayBtn._supershieldClicked) {
+          customPlayBtn._supershieldClicked = true;
+          setTimeout(() => {
+            triggerClick(customPlayBtn);
+          }, 100);
         }
 
         if (!video._supershieldCounted) {

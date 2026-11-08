@@ -2963,5 +2963,21 @@
         "other"
       ]
     }
+  },
+  {
+    "id": 167,
+    "priority": 2,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "urlFilter": "||watermelogic.com^",
+      "resourceTypes": [
+        "media",
+        "script",
+        "xmlhttprequest",
+        "other"
+      ]
+    }
   }
 ]

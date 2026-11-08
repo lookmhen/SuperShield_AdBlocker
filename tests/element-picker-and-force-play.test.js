@@ -262,3 +262,64 @@ test('element picker does NOT spawn banners inside child iframes', () => {
 
   dom.window.close();
 });
+
+test('forcePlayVideos fast-forwards ad video, clicks skip and custom_play_btn, and does NOT force-play or unmute ad', () => {
+  const pickerCode = fs.readFileSync('content-scripts/picker.js', 'utf8');
+  const dom = new JSDOM(`<!DOCTYPE html>
+    <html>
+      <body>
+        <div id="player_content" style="display: block;">
+          <div id="a4s" class="jwplayer jw-reset jw-state-playing">
+            <div class="jw-media jw-reset">
+              <video class="jw-video jw-reset" src="https://flswa.watermelogic.com/assets/we356.mp4"></video>
+            </div>
+            <div class="afs_ads ad-placement" style="width: 1px; height: 1px;">&nbsp;</div>
+          </div>
+          <button id="custom_play_btn" aria-label="Play content" class="v0x">Play</button>
+          <div class="loading-indicator" id="loading_ind">กำลังโหลด...</div>
+          <button id="skip_btn" style="display: block; cursor: pointer;">ข้ามโฆษณา</button>
+          <button id="register_btn" style="display: block;">สมัครสมาชิก กด!</button>
+        </div>
+      </body>
+    </html>`, { runScripts: "dangerously" });
+
+  const video = dom.window.document.querySelector('video');
+  Object.defineProperty(video, 'duration', { value: 30, configurable: true, writable: true });
+  video.currentTime = 0;
+  video.playbackRate = 1;
+  video.muted = false;
+
+  let adVideoPlayCalled = false;
+  video.play = () => {
+    adVideoPlayCalled = true;
+    return Promise.resolve();
+  };
+
+  let skipClicked = false;
+  dom.window.document.getElementById('skip_btn').addEventListener('click', () => {
+    skipClicked = true;
+  });
+
+  let customPlayClicked = false;
+  dom.window.document.getElementById('custom_play_btn').addEventListener('click', () => {
+    customPlayClicked = true;
+  });
+
+  dom.window.chrome = {
+    storage: { local: { get: (k, cb) => cb({}), set: () => {} } },
+    runtime: { sendMessage: () => Promise.resolve() }
+  };
+
+  dom.window.eval(pickerCode);
+  const result = dom.window.forcePlayVideos();
+
+  assert.equal(result.unlocked, true, 'Force play must report unlocked');
+  assert.equal(adVideoPlayCalled, false, 'Ad video must NOT be force played');
+  assert.equal(video.playbackRate, 16, 'Ad video must be fast-forwarded to 16x');
+  assert.equal(video.muted, true, 'Ad video must be muted');
+  assert.equal(video.currentTime, 30, 'Ad video currentTime must be fast forwarded to end');
+  assert.equal(skipClicked, true, 'Skip button must be triggered');
+  assert.equal(customPlayClicked, true, 'Custom play button must be triggered');
+
+  dom.window.close();
+});

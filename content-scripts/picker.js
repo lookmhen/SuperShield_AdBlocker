@@ -270,9 +270,109 @@
     '.video-play-button',
     '.play-button',
     '.play-btn',
-    'button[aria-label*="play"]',
-    'button[aria-label*="Play"]'
+    '#custom_play_btn',
+    '#play_btn',
+    'button[aria-label*="play" i]',
+    'button[aria-label*="Play" i]',
+    'button[aria-label*="Play content" i]',
+    '.v0x',
+    '[id*="custom_play" i]'
   ];
+
+  const SKIP_BUTTON_SELECTORS = [
+    '#skip_btn',
+    '#skip-btn',
+    '#skipButton',
+    'button[id*="skip" i]',
+    'div[id*="skip" i]',
+    'a[id*="skip" i]',
+    '.ytp-ad-skip-button',
+    '.ytp-ad-skip-button-modern',
+    '.ytp-skip-ad-button',
+    '[class*="skip-button" i]',
+    '[class*="skip-ad" i]',
+    '[class*="ad-skip" i]',
+    '[id*="skip-ad" i]',
+    '[id*="ad-skip" i]',
+    '[aria-label*="skip" i]',
+    '.skip-btn',
+    '.skip-button',
+    '.skip_btn',
+    'button[class*="skip" i]'
+  ];
+
+  const AD_CLASS_REGEX = /\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad|jw-flag-ads|vjs-ad-playing|afs_ads|ad-placement)\b/i;
+  const AD_URL_REGEX = /(watermelogic\.com|doubleclick\.net|googlesyndication\.com|\/assets\/we\d+|\/video-ads?\/|\/ads?\/[a-z0-9_-]+\.mp4)/i;
+
+  function isVisible(el) {
+    if (!el) return false;
+    try {
+      if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) {
+        return false;
+      }
+      if (typeof window !== 'undefined' && window.getComputedStyle) {
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+          return false;
+        }
+      }
+      return true;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function triggerClick(el) {
+    if (!el) return;
+    try {
+      el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    } catch (e) {}
+    try {
+      if (typeof el.click === 'function') el.click();
+      if (typeof el.onclick === 'function') el.onclick();
+    } catch (e) {}
+  }
+
+  function isAdVideo(video, container, playerContext) {
+    if (!video) return false;
+    const ctx = playerContext || container?.parentElement || container || (typeof document !== 'undefined' ? document : null);
+
+    // 1. Direct video class markers
+    const vCls = String(video.className || '');
+    if (/\b(ad-showing|ad-interrupting|ad-playing|video-ad|vast-ad)\b/i.test(vCls)) return true;
+
+    // 2. Direct video URL markers
+    const src = (video.src || video.currentSrc || '').toLowerCase();
+    if (src && AD_URL_REGEX.test(src)) return true;
+
+    // 3. Container in active ad-showing state
+    if (container) {
+      const cCls = String(container.className || '');
+      if (/\b(ad-showing|ad-interrupting|ad-playing)\b/i.test(cCls)) return true;
+    }
+
+    // 4. Presence of an active skip button or ad placement markers alongside the video
+    if (ctx) {
+      const hasAdMarker = ctx.querySelector('.afs_ads, .ad-placement, #register_btn, [id*="register_btn" i]');
+      for (const sel of SKIP_BUTTON_SELECTORS) {
+        const btn = ctx.querySelector(sel);
+        if (btn && isVisible(btn)) return true;
+      }
+      const buttons = ctx.querySelectorAll('button, div[role="button"], a[role="button"]');
+      for (const btn of buttons) {
+        const txt = (btn.textContent || '').trim().toLowerCase();
+        if ((txt.includes('ข้ามโฆษณา') || txt.includes('skip ad')) && isVisible(btn)) {
+          return true;
+        }
+      }
+      if (hasAdMarker && src) return true;
+    }
+
+    return false;
+  }
 
   function isLegitimatePlayerControl(el) {
     if (!el) return false;
@@ -280,7 +380,7 @@
 
     // Explicit ad overlay elements are NEVER legitimate controls
     const cls = String(el.className || '') + ' ' + String(el.id || '');
-    if (/jw-flag-ads|ad-container|video-ad|ad-overlay|fake-play|fake-player|click-trap|play-trap|stream-overlay/i.test(cls)) {
+    if (/jw-flag-ads|ad-container|video-ad|ad-overlay|fake-play|fake-player|click-trap|play-trap|stream-overlay|register_btn/i.test(cls)) {
       return false;
     }
 
@@ -320,6 +420,25 @@
     let unlocked = false;
     let removedCount = 0;
 
+    // Pre-click any skip buttons on the page
+    for (const sel of SKIP_BUTTON_SELECTORS) {
+      const btns = document.querySelectorAll(sel);
+      for (const b of btns) {
+        if (isVisible(b)) {
+          triggerClick(b);
+          unlocked = true;
+        }
+      }
+    }
+    const allDocButtons = document.querySelectorAll('button, div[role="button"], a[role="button"]');
+    for (const b of allDocButtons) {
+      const txt = (b.textContent || '').trim().toLowerCase();
+      if ((txt.includes('ข้ามโฆษณา') || txt === 'ข้าม' || txt.includes('skip ad')) && isVisible(b)) {
+        triggerClick(b);
+        unlocked = true;
+      }
+    }
+
     // 1. Direct <video> elements (HTML5, JW Player, Video.js, Plyr, Clappr, etc.)
     const videos = document.querySelectorAll('video');
     for (const video of videos) {
@@ -331,50 +450,97 @@
       } catch (err) {}
       if (!container) container = video.parentElement;
 
-      if (container) {
-        // Strip rogue overlays and fake buttons covering the video
-        const potentialOverlays = container.querySelectorAll(
-          '[class*="play-overlay" i], [id*="play-overlay" i], ' +
-          '[class*="fake-play" i], [id*="fake-play" i], ' +
-          '[class*="play-button" i], [id*="play-button" i], ' +
-          '[class*="play-btn" i], [id*="play-btn" i], ' +
-          '[class*="overlay" i], [id*="overlay" i], ' +
-          '[class*="fake" i], [id*="fake" i], ' +
-          '[class*="trap" i], [id*="trap" i], ' +
-          '[class*="click-trap" i], [id*="click-trap" i], ' +
-          'div[style*="absolute"], div[style*="fixed"], a[target="_blank"]'
-        );
+      const playerContext = container?.parentElement || container;
 
-        for (const el of potentialOverlays) {
-          if (el === video || video.contains(el) || el.contains(video) || el === container) continue;
-
-          // Do not delete legitimate control bars or real player play buttons
-          if (isLegitimatePlayerControl(el)) {
-            continue;
+      // Check if this video is an ad video
+      if (isAdVideo(video, container, playerContext)) {
+        // Fast-forward & mute the ad video
+        try {
+          video.muted = true;
+          video.playbackRate = 16.0;
+          if (video.duration && isFinite(video.duration) && video.duration > 0) {
+            video.currentTime = video.duration;
           }
+        } catch (e) {}
 
-          const isPositioned = el.style.position === 'absolute' || el.style.position === 'fixed' ||
-                               parseInt(el.style.zIndex, 10) > 0 ||
-                               /overlay|fake|trap|ad-|sponsor|backdrop|click/i.test(el.className + ' ' + el.id) ||
-                               (el.tagName === 'A' && el.target === '_blank');
+        // Click skip buttons inside playerContext or document
+        for (const sel of SKIP_BUTTON_SELECTORS) {
+          const skipBtn = playerContext?.querySelector(sel) || document.querySelector(sel);
+          if (skipBtn && isVisible(skipBtn)) {
+            triggerClick(skipBtn);
+            unlocked = true;
+          }
+        }
 
-          if (isPositioned) {
-            try {
-              el.remove();
-              removedCount++;
-            } catch (e) {}
+        // Hide predatory register button
+        const regBtn = playerContext?.querySelector('#register_btn, [id*="register_btn" i]');
+        if (regBtn) {
+          try {
+            regBtn.style.setProperty('display', 'none', 'important');
+            regBtn.remove();
+          } catch (e) {}
+        }
+
+        // Click custom play button if available
+        const customPlayBtn = playerContext?.querySelector('#custom_play_btn, [aria-label*="Play content" i]');
+        if (customPlayBtn && isVisible(customPlayBtn)) {
+          triggerClick(customPlayBtn);
+          unlocked = true;
+        }
+
+        safeSendMessage({ type: 'VIDEO_AD_SKIPPED', count: 1 });
+        continue; // Never un-mute or force play the ad video!
+      }
+
+      if (container) {
+        const targetsToClean = [container];
+        if (playerContext && playerContext !== container && playerContext !== document.body && playerContext !== document.documentElement) {
+          targetsToClean.push(playerContext);
+        }
+
+        for (const target of targetsToClean) {
+          // Strip rogue overlays and fake buttons covering the video
+          const potentialOverlays = target.querySelectorAll(
+            '[class*="play-overlay" i], [id*="play-overlay" i], ' +
+            '[class*="fake-play" i], [id*="fake-play" i], ' +
+            '[class*="play-button" i], [id*="play-button" i], ' +
+            '[class*="play-btn" i], [id*="play-btn" i], ' +
+            '[class*="overlay" i], [id*="overlay" i], ' +
+            '[class*="fake" i], [id*="fake" i], ' +
+            '[class*="trap" i], [id*="trap" i], ' +
+            '[class*="click-trap" i], [id*="click-trap" i], ' +
+            '#register_btn, [id*="register_btn" i], .afs_ads, .ad-placement, ' +
+            'div[style*="absolute"], div[style*="fixed"], a[target="_blank"]'
+          );
+
+          for (const el of potentialOverlays) {
+            if (el === video || video.contains(el) || el.contains(video) || el === container || el === playerContext) continue;
+
+            // Do not delete legitimate control bars or real player play buttons
+            if (isLegitimatePlayerControl(el)) {
+              continue;
+            }
+
+            const isPositioned = el.style.position === 'absolute' || el.style.position === 'fixed' ||
+                                 parseInt(el.style.zIndex, 10) > 0 ||
+                                 /overlay|fake|trap|ad-|sponsor|backdrop|click|register|afs_ads/i.test(el.className + ' ' + el.id) ||
+                                 (el.tagName === 'A' && el.target === '_blank');
+
+            if (isPositioned) {
+              try {
+                el.remove();
+                removedCount++;
+              } catch (e) {}
+            }
           }
         }
 
         // Trigger Big Play Buttons for player frameworks
         for (const sel of BIG_PLAY_BUTTON_SELECTORS) {
-          const btn = container.querySelector(sel);
-          if (btn) {
-            try {
-              if (typeof btn.click === 'function') btn.click();
-              if (typeof btn.onclick === 'function') btn.onclick();
-              unlocked = true;
-            } catch (e) {}
+          const btn = container.querySelector(sel) || playerContext?.querySelector(sel);
+          if (btn && isVisible(btn)) {
+            triggerClick(btn);
+            unlocked = true;
           }
         }
       }
