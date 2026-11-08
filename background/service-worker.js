@@ -28,6 +28,53 @@ const DEFAULT_RESOURCE_TYPES = [
   'other'
 ];
 
+/**
+ * Validates whether a urlFilter string adheres strictly to Chromium's DeclarativeNetRequest specification.
+ * Discards malformed rules (e.g. XPath fragments ||/html/..., JS code tokens, brackets, semicolons).
+ * @param {string} filter
+ * @returns {boolean}
+ */
+function isValidDnrUrlFilter(filter) {
+  if (!filter || typeof filter !== 'string') return false;
+  // Printable ASCII only, no spaces
+  if (!/^[\x21-\x7E]+$/.test(filter)) return false;
+  // Cannot start with ||* or ||/
+  if (filter.startsWith('||*') || filter.startsWith('||/')) return false;
+  // Cannot contain illegal characters: comma, semicolon, quotes, braces, parens, brackets, angle brackets
+  if (/[;,\\'"\`{}()\[\]<>]/.test(filter)) return false;
+
+  // If starts with ||, the domain part must look like a valid domain/hostname
+  if (filter.startsWith('||')) {
+    const rest = filter.slice(2);
+    // Domain part is everything before /, ^, ?, or :
+    const domainMatch = rest.match(/^([a-zA-Z0-9_.*-]+)/);
+    if (!domainMatch) return false;
+    const domain = domainMatch[1];
+    // Domain must contain at least one dot or wildcard, and not be pure numbers
+    if (!domain.includes('.') && !domain.includes('*')) return false;
+    if (/^\d+$/.test(domain)) return false;
+    return true;
+  }
+
+  // If starts with http:// or https://
+  if (filter.startsWith('http://') || filter.startsWith('https://')) {
+    const afterProto = filter.replace(/^https?:\/\//, '');
+    const domainMatch = afterProto.match(/^([a-zA-Z0-9_.*-]+)/);
+    if (!domainMatch) return false;
+    const domain = domainMatch[1];
+    if (!domain.includes('.') && !domain.includes('*')) return false;
+    if (/^\d+$/.test(domain)) return false;
+    return true;
+  }
+
+  // Plain domains must have at least one dot and valid domain format
+  if (/^[a-zA-Z0-9_.*-]+\.[a-zA-Z0-9_.*-]+/.test(filter)) {
+    return true;
+  }
+
+  return false;
+}
+
 function parseBlocklist(text) {
   if (!text || typeof text !== 'string') {
     return { title: '', networkRules: [], cosmeticRules: [] };
@@ -187,8 +234,8 @@ function parseBlocklist(text) {
       }
     }
 
-    // Skip filters containing illegal whitespace or control characters
-    if (/\s/.test(urlFilter)) continue;
+    // Validate that the filter conforms to Chromium's DeclarativeNetRequest specifications
+    if (!isValidDnrUrlFilter(urlFilter)) continue;
 
     const key = `${isAllow ? 'allow:' : 'block:'}${urlFilter}:${domainType || ''}:${resourceTypes?.join(',') || ''}`;
     if (!seenNetwork.has(key)) {
@@ -214,11 +261,15 @@ function createDnrRules(networkRules, startId = 10001, maxRules = 25000) {
   if (!Array.isArray(networkRules)) return [];
 
   const rules = [];
-  const count = Math.min(networkRules.length, maxRules);
+  let allocated = 0;
 
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < networkRules.length && allocated < maxRules; i++) {
     const item = networkRules[i];
-    const id = startId + i;
+    if (!isValidDnrUrlFilter(item.urlFilter)) continue;
+
+    const id = startId + allocated;
+    allocated++;
+
     const rule = {
       id,
       priority: item.isAllow ? 2 : 1,
@@ -452,6 +503,46 @@ async function syncRuleset(enabled) {
 }
 
 /**
+ * Robustly updates dynamic DNR rules with automatic fallback and filtering of malformed rules.
+ * @param {Array<object>} rulesToAdd
+ */
+async function safeUpdateDynamicRules(rulesToAdd) {
+  if (!chrome.declarativeNetRequest?.updateDynamicRules) return;
+
+  let currentRules = Array.isArray(rulesToAdd)
+    ? rulesToAdd.filter((r) => isValidDnrUrlFilter(r?.condition?.urlFilter))
+    : [];
+
+  let removeRuleIds = [];
+  try {
+    const existing = await chrome.declarativeNetRequest.getDynamicRules();
+    removeRuleIds = existing.map((r) => r.id);
+  } catch (e) {}
+
+  // Attempt update with automatic extraction and removal of any rule rejected by Chrome
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds,
+        addRules: currentRules
+      });
+      return; // Cleanly succeeded!
+    } catch (err) {
+      const errMsg = String(err && err.message ? err.message : err);
+      const match = errMsg.match(/Rule with id (\d+)/i);
+      if (match && match[1]) {
+        const badId = parseInt(match[1], 10);
+        console.warn(`SuperShield: Automatically filtered malformed rule ${badId}:`, errMsg);
+        currentRules = currentRules.filter((r) => r.id !== badId);
+      } else {
+        console.warn('SuperShield: Dynamic rule sync note:', errMsg);
+        return;
+      }
+    }
+  }
+}
+
+/**
  * Synchronizes custom user rules and list subscriptions with DeclarativeNetRequest dynamic rules
  * and cosmetic filters stored in local storage.
  */
@@ -502,19 +593,9 @@ async function syncAllRules() {
       combinedCosmetic.push(...parsed.cosmeticRules);
     }
 
-    // Update dynamic DNR rules in Chromium
-    try {
-      const dnrRules = createDnrRules(combinedNetwork, 10001, 25000);
-      const existing = await chrome.declarativeNetRequest.getDynamicRules();
-      const removeRuleIds = existing.map((r) => r.id);
-
-      await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds,
-        addRules: dnrRules
-      });
-    } catch (err) {
-      console.error('Failed to update declarativeNetRequest dynamic rules:', err);
-    }
+    // Update dynamic DNR rules in Chromium safely with auto-filtering
+    const dnrRules = createDnrRules(combinedNetwork, 10001, 25000);
+    await safeUpdateDynamicRules(dnrRules);
 
     // Update cosmetic filters for content scripts
     try {
@@ -527,7 +608,7 @@ async function syncAllRules() {
       console.error('Failed to update cosmetic filters:', err);
     }
   } catch (err) {
-    console.error('syncAllRules error:', err);
+    console.warn('syncAllRules error:', err);
   }
 }
 

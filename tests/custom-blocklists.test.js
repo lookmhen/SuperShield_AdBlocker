@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
 import {
+  isValidDnrUrlFilter,
   parseBlocklist,
   createDnrRules,
   extractCosmeticFilters,
@@ -105,6 +106,25 @@ test('parseBlocklist parses multi-line text with domains, hosts, and AdBlock syn
     selector: '.universal-popup-trap',
     raw: '##.universal-popup-trap'
   });
+});
+
+test('isValidDnrUrlFilter validates DNR urlFilter patterns accurately', () => {
+  // Valid patterns
+  assert.equal(isValidDnrUrlFilter('||example.com^'), true);
+  assert.equal(isValidDnrUrlFilter('||sub.domain.co.th/path/to/ad.gif'), true);
+  assert.equal(isValidDnrUrlFilter('||adserver*.net^'), true);
+  assert.equal(isValidDnrUrlFilter('http://example.com/banner.gif'), true);
+  assert.equal(isValidDnrUrlFilter('https://secure.tracker.org/pixel'), true);
+  assert.equal(isValidDnrUrlFilter('plain-tracker.com'), true);
+
+  // Invalid patterns
+  assert.equal(isValidDnrUrlFilter('||21^'), false, 'Numeric lines must be rejected');
+  assert.equal(isValidDnrUrlFilter('||/html/body/div[2]/ul'), false, 'XPath fragments must be rejected');
+  assert.equal(isValidDnrUrlFilter('||*'), false, 'Wildcard directly after anchor must be rejected');
+  assert.equal(isValidDnrUrlFilter('selector, { display: none }'), false, 'CSS code must be rejected');
+  assert.equal(isValidDnrUrlFilter('console.log("hello");'), false, 'JS code must be rejected');
+  assert.equal(isValidDnrUrlFilter(''), false, 'Empty string must be rejected');
+  assert.equal(isValidDnrUrlFilter(null), false, 'Null must be rejected');
 });
 
 test('createDnrRules converts parsed rules into valid DeclarativeNetRequest dynamic rules', () => {
