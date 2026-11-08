@@ -1,21 +1,403 @@
 // background/service-worker.js
-import {
-  DEFAULT_STATE,
-  handleMessage,
-  parseBlocklist,
-  createDnrRules,
-  extractCosmeticFilters
-} from './service-worker-logic.js';
+// Standalone Service Worker for SuperShield AdBlocker Manifest V3
+// Fully self-contained to run seamlessly in both classic and module environments without import errors.
+
+const DEFAULT_STATE = {
+  enabled: true,
+  stats: {
+    bannersBlocked: 0,
+    videoAdsSkipped: 0,
+    antiAdblockDefused: 0
+  },
+  customRawRulesText: '',
+  subscriptions: []
+};
+
+const DEFAULT_RESOURCE_TYPES = [
+  'main_frame',
+  'sub_frame',
+  'stylesheet',
+  'script',
+  'image',
+  'font',
+  'object',
+  'xmlhttprequest',
+  'ping',
+  'media',
+  'websocket',
+  'other'
+];
+
+function parseBlocklist(text) {
+  if (!text || typeof text !== 'string') {
+    return { title: '', networkRules: [], cosmeticRules: [] };
+  }
+
+  const lines = text.split(/\r?\n/);
+  const networkRules = [];
+  const cosmeticRules = [];
+  const seenNetwork = new Set();
+  const seenCosmetic = new Set();
+  let title = '';
+
+  for (const raw of lines) {
+    let line = raw.trim();
+    if (!line) continue;
+
+    // Check title in comments
+    if (line.startsWith('!')) {
+      const titleMatch = line.match(/^!\s*Title:\s*(.+)$/i);
+      if (titleMatch && !title) {
+        title = titleMatch[1].trim();
+      }
+      continue;
+    }
+
+    // Skip Adblock headers like [Adblock Plus 2.0]
+    if (line.startsWith('[')) continue;
+
+    // Skip hash comments unless it's a cosmetic hiding rule starting with ##
+    if (line.startsWith('#') && !line.startsWith('##')) continue;
+
+    // Cosmetic element hiding rules (e.g. "example.com##.banner", "##.ad-box")
+    if (line.includes('##') || line.includes('#@#') || line.includes('#?#')) {
+      if (line.includes('##')) {
+        const idx = line.indexOf('##');
+        const domainPart = line.slice(0, idx).trim();
+        const selector = line.slice(idx + 2).trim();
+        if (selector) {
+          const domains = domainPart
+            ? domainPart.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean)
+            : [];
+          const key = `${domains.join(',')}:${selector}`;
+          if (!seenCosmetic.has(key)) {
+            seenCosmetic.add(key);
+            cosmeticRules.push({
+              domains,
+              selector,
+              raw: line
+            });
+          }
+        }
+      }
+      continue;
+    }
+
+    // Network rules
+    // 1. Strip trailing comment (e.g., "bad.com # tracker")
+    line = line.replace(/\s+#.*$/, '').trim();
+    if (!line) continue;
+
+    // 2. Hosts file format: "0.0.0.0 bad.com", "127.0.0.1 bad.com", "::1 bad.com"
+    const hostsMatch = line.match(/^(?:0\.0\.0\.0|127\.0\.0\.1|::1)\s+([^\s#]+)/);
+    if (hostsMatch) {
+      line = hostsMatch[1].trim();
+    }
+
+    // Skip localhost and broadcast IPs
+    if (
+      line === 'localhost' ||
+      line === '0.0.0.0' ||
+      line === '127.0.0.1' ||
+      line === 'broadcasthost' ||
+      line === 'local'
+    ) {
+      continue;
+    }
+
+    // 3. Allowlist rule check (starts with @@)
+    let isAllow = false;
+    if (line.startsWith('@@')) {
+      isAllow = true;
+      line = line.slice(2).trim();
+    }
+
+    // 4. Options check (e.g. pattern$script,third-party)
+    let domainType = undefined;
+    let resourceTypes = undefined;
+    if (line.includes('$')) {
+      const dollarIndex = line.lastIndexOf('$');
+      const patternPart = line.slice(0, dollarIndex).trim();
+      const optionsPart = line.slice(dollarIndex + 1).trim();
+
+      const options = optionsPart.split(',').map((opt) => opt.trim().toLowerCase());
+      // Skip if explicitly marked with $badfilter
+      if (options.includes('badfilter')) {
+        continue;
+      }
+
+      if (options.includes('third-party') || options.includes('3p')) {
+        domainType = 'thirdParty';
+      } else if (options.includes('first-party') || options.includes('1p') || options.includes('~third-party')) {
+        domainType = 'firstParty';
+      }
+
+      // Map resource types
+      const typeMap = {
+        script: 'script',
+        image: 'image',
+        stylesheet: 'stylesheet',
+        css: 'stylesheet',
+        xmlhttprequest: 'xmlhttprequest',
+        xhr: 'xmlhttprequest',
+        subdocument: 'sub_frame',
+        sub_frame: 'sub_frame',
+        font: 'font',
+        media: 'media',
+        websocket: 'websocket',
+        ping: 'ping',
+        other: 'other'
+      };
+
+      const matchedTypes = [];
+      for (const opt of options) {
+        if (typeMap[opt] && !matchedTypes.includes(typeMap[opt])) {
+          matchedTypes.push(typeMap[opt]);
+        }
+      }
+      if (matchedTypes.length > 0) {
+        resourceTypes = matchedTypes;
+      }
+
+      line = patternPart;
+    }
+
+    if (!line) continue;
+
+    // 5. Normalization for DeclarativeNetRequest urlFilter
+    let urlFilter = line;
+    // Strip leading wildcard *. (e.g. *.adserver.com -> adserver.com)
+    if (urlFilter.startsWith('*.')) {
+      urlFilter = urlFilter.slice(2);
+    }
+
+    // Strip leading protocol anchor |http:// or |https://
+    if (urlFilter.startsWith('|http://')) {
+      urlFilter = urlFilter.slice(1);
+    } else if (urlFilter.startsWith('|https://')) {
+      urlFilter = urlFilter.slice(1);
+    }
+
+    // Wrap plain domain in ||domain^ for exact domain and subdomain boundary matching
+    if (!urlFilter.startsWith('||') && !urlFilter.startsWith('http://') && !urlFilter.startsWith('https://')) {
+      if (!urlFilter.includes('/') && !urlFilter.endsWith('^')) {
+        urlFilter = `||${urlFilter}^`;
+      } else if (!urlFilter.startsWith('||')) {
+        urlFilter = `||${urlFilter}`;
+      }
+    }
+
+    // Skip filters containing illegal whitespace or control characters
+    if (/\s/.test(urlFilter)) continue;
+
+    const key = `${isAllow ? 'allow:' : 'block:'}${urlFilter}:${domainType || ''}:${resourceTypes?.join(',') || ''}`;
+    if (!seenNetwork.has(key)) {
+      seenNetwork.add(key);
+      networkRules.push({
+        urlFilter,
+        isAllow,
+        ...(domainType ? { domainType } : {}),
+        ...(resourceTypes ? { resourceTypes } : {}),
+        raw: raw.trim()
+      });
+    }
+  }
+
+  return {
+    title,
+    networkRules,
+    cosmeticRules
+  };
+}
+
+function createDnrRules(networkRules, startId = 10001, maxRules = 25000) {
+  if (!Array.isArray(networkRules)) return [];
+
+  const rules = [];
+  const count = Math.min(networkRules.length, maxRules);
+
+  for (let i = 0; i < count; i++) {
+    const item = networkRules[i];
+    const id = startId + i;
+    const rule = {
+      id,
+      priority: item.isAllow ? 2 : 1,
+      action: {
+        type: item.isAllow ? 'allow' : 'block'
+      },
+      condition: {
+        urlFilter: item.urlFilter,
+        resourceTypes: item.resourceTypes || DEFAULT_RESOURCE_TYPES
+      }
+    };
+
+    if (item.domainType) {
+      rule.condition.domainType = item.domainType;
+    }
+
+    rules.push(rule);
+  }
+
+  return rules;
+}
+
+function extractCosmeticFilters(cosmeticRules) {
+  const domainFilters = {};
+  const globalFilters = [];
+  const seenGlobal = new Set();
+
+  if (!Array.isArray(cosmeticRules)) {
+    return { domainFilters, globalFilters };
+  }
+
+  for (const item of cosmeticRules) {
+    if (!item || !item.selector) continue;
+    const selector = item.selector.trim();
+    if (!selector) continue;
+
+    if (!Array.isArray(item.domains) || item.domains.length === 0) {
+      if (!seenGlobal.has(selector)) {
+        seenGlobal.add(selector);
+        globalFilters.push(selector);
+      }
+    } else {
+      for (const domain of item.domains) {
+        const d = domain.trim().toLowerCase();
+        if (!d) continue;
+        if (!domainFilters[d]) {
+          domainFilters[d] = [];
+        }
+        if (!domainFilters[d].includes(selector)) {
+          domainFilters[d].push(selector);
+        }
+      }
+    }
+  }
+
+  return { domainFilters, globalFilters };
+}
+
+async function handleMessage(message, storage) {
+  if (!message || !message.type) {
+    return await storage.get();
+  }
+
+  const current = await storage.get();
+  const enabled = current.enabled !== undefined ? current.enabled : DEFAULT_STATE.enabled;
+  const stats = {
+    bannersBlocked: current.stats?.bannersBlocked || 0,
+    videoAdsSkipped: current.stats?.videoAdsSkipped || 0,
+    antiAdblockDefused: current.stats?.antiAdblockDefused || 0
+  };
+  const customRawRulesText = current.customRawRulesText || '';
+  const subscriptions = Array.isArray(current.subscriptions) ? current.subscriptions : [];
+
+  const count = typeof message.count === 'number' && message.count > 0 ? message.count : 1;
+
+  switch (message.type) {
+    case 'AD_BLOCKED':
+      stats.bannersBlocked += count;
+      await storage.set({ stats });
+      return { enabled, stats };
+
+    case 'VIDEO_AD_SKIPPED':
+      stats.videoAdsSkipped += count;
+      await storage.set({ stats });
+      return { enabled, stats };
+
+    case 'ANTI_ADBLOCK_DEFUSED':
+      stats.antiAdblockDefused += count;
+      await storage.set({ stats });
+      return { enabled, stats };
+
+    case 'RESET_STATS':
+      stats.bannersBlocked = 0;
+      stats.videoAdsSkipped = 0;
+      stats.antiAdblockDefused = 0;
+      await storage.set({ stats });
+      return { enabled, stats };
+
+    case 'TOGGLE_ENABLED':
+      const newEnabled = typeof message.enabled === 'boolean' ? message.enabled : !enabled;
+      await storage.set({ enabled: newEnabled });
+      return { enabled: newEnabled, stats };
+
+    case 'GET_CUSTOM_DATA':
+      return {
+        customRawRulesText,
+        subscriptions
+      };
+
+    case 'SAVE_CUSTOM_RULES':
+      const nextRulesText = typeof message.rulesText === 'string' ? message.rulesText : '';
+      await storage.set({ customRawRulesText: nextRulesText });
+      return { success: true, customRawRulesText: nextRulesText };
+
+    case 'CLEAR_CUSTOM_RULES':
+      await storage.set({ customRawRulesText: '' });
+      return { success: true, customRawRulesText: '' };
+
+    case 'ADD_SUBSCRIPTION_DATA': {
+      const url = (message.url || '').trim();
+      if (!url) return { success: false, error: 'URL is required' };
+
+      const rawText = message.rawText || '';
+      const parsed = parseBlocklist(rawText);
+      const subName = parsed.title || message.name || url.split('/').pop().split('?')[0] || 'Blocklist';
+
+      const subs = [...subscriptions];
+      const existingIdx = subs.findIndex((s) => s.url === url || s.id === url);
+      const subData = {
+        id: url,
+        url,
+        name: subName,
+        networkRulesCount: parsed.networkRules.length,
+        cosmeticRulesCount: parsed.cosmeticRules.length,
+        totalCount: parsed.networkRules.length + parsed.cosmeticRules.length,
+        rawText,
+        updatedAt: Date.now()
+      };
+
+      if (existingIdx >= 0) {
+        subs[existingIdx] = subData;
+      } else {
+        subs.push(subData);
+      }
+
+      await storage.set({ subscriptions: subs });
+      return { success: true, subscription: subData, subscriptions: subs };
+    }
+
+    case 'REMOVE_SUBSCRIPTION': {
+      const targetUrl = message.url || message.id;
+      const updatedSubs = subscriptions.filter((s) => s.url !== targetUrl && s.id !== targetUrl);
+      await storage.set({ subscriptions: updatedSubs });
+      return { success: true, subscriptions: updatedSubs };
+    }
+
+    case 'GET_STATE':
+    default:
+      return { enabled, stats, customRawRulesText, subscriptions };
+  }
+}
 
 const storageAdapter = {
   async get(keys) {
     return new Promise((resolve) => {
-      chrome.storage.local.get(keys || null, (res) => resolve(res || {}));
+      try {
+        chrome.storage.local.get(keys || null, (res) => resolve(res || {}));
+      } catch (e) {
+        resolve({});
+      }
     });
   },
   async set(items) {
     return new Promise((resolve) => {
-      chrome.storage.local.set(items, () => resolve());
+      try {
+        chrome.storage.local.set(items, () => resolve());
+      } catch (e) {
+        resolve();
+      }
     });
   }
 };
@@ -23,23 +405,25 @@ const storageAdapter = {
 async function updateBadge(state) {
   if (!chrome.action) return;
 
-  if (!state.enabled) {
-    if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
-      await chrome.declarativeNetRequest.setExtensionActionOptions({
-        displayActionCountAsBadgeText: false
-      }).catch(() => {});
+  try {
+    if (!state || !state.enabled) {
+      if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
+        await chrome.declarativeNetRequest.setExtensionActionOptions({
+          displayActionCountAsBadgeText: false
+        }).catch(() => {});
+      }
+      chrome.action.setBadgeText({ text: 'OFF' });
+      chrome.action.setBadgeBackgroundColor({ color: '#888888' });
+    } else {
+      // Clear manual "OFF" text so Chrome's per-tab displayActionCountAsBadgeText takes precedence
+      chrome.action.setBadgeText({ text: '' });
+      if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
+        await chrome.declarativeNetRequest.setExtensionActionOptions({
+          displayActionCountAsBadgeText: true
+        }).catch(() => {});
+      }
     }
-    chrome.action.setBadgeText({ text: 'OFF' });
-    chrome.action.setBadgeBackgroundColor({ color: '#888888' });
-  } else {
-    // Clear manual "OFF" text so Chrome's per-tab displayActionCountAsBadgeText takes precedence
-    chrome.action.setBadgeText({ text: '' });
-    if (chrome.declarativeNetRequest?.setExtensionActionOptions) {
-      await chrome.declarativeNetRequest.setExtensionActionOptions({
-        displayActionCountAsBadgeText: true
-      }).catch(() => {});
-    }
-  }
+  } catch (err) {}
 }
 
 async function syncRuleset(enabled) {
@@ -74,96 +458,108 @@ async function syncRuleset(enabled) {
 async function syncAllRules() {
   if (!chrome.declarativeNetRequest) return;
 
-  const current = await storageAdapter.get();
-  const isEnabled = current.enabled !== false;
+  try {
+    const current = await storageAdapter.get();
+    const isEnabled = current.enabled !== false;
 
-  // If extension is disabled, purge all dynamic rules and clear custom cosmetic filters
-  if (!isEnabled) {
-    try {
-      const existing = await chrome.declarativeNetRequest.getDynamicRules();
-      if (existing && existing.length > 0) {
-        const removeRuleIds = existing.map((r) => r.id);
-        await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds });
-      }
-      await storageAdapter.set({
-        customCosmeticFilters: {},
-        customGlobalFilters: []
-      });
-    } catch (err) {}
-    return;
-  }
-
-  const customText = current.customRawRulesText || '';
-  const subscriptions = Array.isArray(current.subscriptions) ? current.subscriptions : [];
-
-  // Parse all user rules and subscriptions
-  const allTexts = [customText, ...subscriptions.map((s) => s.rawText || '')];
-  const combinedNetwork = [];
-  const combinedCosmetic = [];
-  const seenNetworkKeys = new Set();
-
-  for (const text of allTexts) {
-    if (!text || typeof text !== 'string') continue;
-    const parsed = parseBlocklist(text);
-
-    for (const rule of parsed.networkRules) {
-      const key = `${rule.isAllow ? 'allow:' : 'block:'}${rule.urlFilter}:${rule.domainType || ''}`;
-      if (!seenNetworkKeys.has(key)) {
-        seenNetworkKeys.add(key);
-        combinedNetwork.push(rule);
-      }
+    // If extension is disabled, purge all dynamic rules and clear custom cosmetic filters
+    if (!isEnabled) {
+      try {
+        const existing = await chrome.declarativeNetRequest.getDynamicRules();
+        if (existing && existing.length > 0) {
+          const removeRuleIds = existing.map((r) => r.id);
+          await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds });
+        }
+        await storageAdapter.set({
+          customCosmeticFilters: {},
+          customGlobalFilters: []
+        });
+      } catch (err) {}
+      return;
     }
 
-    combinedCosmetic.push(...parsed.cosmeticRules);
-  }
+    const customText = current.customRawRulesText || '';
+    const subscriptions = Array.isArray(current.subscriptions) ? current.subscriptions : [];
 
-  // Update dynamic DNR rules in Chromium
-  try {
-    const dnrRules = createDnrRules(combinedNetwork, 10001, 25000);
-    const existing = await chrome.declarativeNetRequest.getDynamicRules();
-    const removeRuleIds = existing.map((r) => r.id);
+    // Parse all user rules and subscriptions
+    const allTexts = [customText, ...subscriptions.map((s) => s.rawText || '')];
+    const combinedNetwork = [];
+    const combinedCosmetic = [];
+    const seenNetworkKeys = new Set();
 
-    await chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds,
-      addRules: dnrRules
-    });
+    for (const text of allTexts) {
+      if (!text || typeof text !== 'string') continue;
+      const parsed = parseBlocklist(text);
+
+      for (const rule of parsed.networkRules) {
+        const key = `${rule.isAllow ? 'allow:' : 'block:'}${rule.urlFilter}:${rule.domainType || ''}`;
+        if (!seenNetworkKeys.has(key)) {
+          seenNetworkKeys.add(key);
+          combinedNetwork.push(rule);
+        }
+      }
+
+      combinedCosmetic.push(...parsed.cosmeticRules);
+    }
+
+    // Update dynamic DNR rules in Chromium
+    try {
+      const dnrRules = createDnrRules(combinedNetwork, 10001, 25000);
+      const existing = await chrome.declarativeNetRequest.getDynamicRules();
+      const removeRuleIds = existing.map((r) => r.id);
+
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds,
+        addRules: dnrRules
+      });
+    } catch (err) {
+      console.error('Failed to update declarativeNetRequest dynamic rules:', err);
+    }
+
+    // Update cosmetic filters for content scripts
+    try {
+      const { domainFilters, globalFilters } = extractCosmeticFilters(combinedCosmetic);
+      await storageAdapter.set({
+        customCosmeticFilters: domainFilters,
+        customGlobalFilters: globalFilters
+      });
+    } catch (err) {
+      console.error('Failed to update cosmetic filters:', err);
+    }
   } catch (err) {
-    console.error('Failed to update declarativeNetRequest dynamic rules:', err);
-  }
-
-  // Update cosmetic filters for content scripts
-  try {
-    const { domainFilters, globalFilters } = extractCosmeticFilters(combinedCosmetic);
-    await storageAdapter.set({
-      customCosmeticFilters: domainFilters,
-      customGlobalFilters: globalFilters
-    });
-  } catch (err) {
-    console.error('Failed to update cosmetic filters:', err);
+    console.error('syncAllRules error:', err);
   }
 }
 
 async function initServiceWorker() {
-  const current = await storageAdapter.get();
-  if (current.enabled === undefined) {
-    await storageAdapter.set(DEFAULT_STATE);
+  try {
+    const current = await storageAdapter.get();
+    if (current.enabled === undefined) {
+      await storageAdapter.set(DEFAULT_STATE);
+    }
+    const isEnabled = current.enabled !== false;
+    await syncRuleset(isEnabled);
+    await syncAllRules();
+    const state = await storageAdapter.get();
+    await updateBadge(state);
+  } catch (err) {
+    console.warn('initServiceWorker error:', err);
   }
-  const isEnabled = current.enabled !== false;
-  await syncRuleset(isEnabled);
-  await syncAllRules();
-  const state = await storageAdapter.get();
-  await updateBadge(state);
 }
 
 // Initialize on load/wake-up
-initServiceWorker();
+initServiceWorker().catch(() => {});
 
 if (chrome.runtime?.onStartup) {
-  chrome.runtime.onStartup.addListener(initServiceWorker);
+  chrome.runtime.onStartup.addListener(() => {
+    initServiceWorker().catch(() => {});
+  });
 }
 
 if (chrome.runtime?.onInstalled) {
-  chrome.runtime.onInstalled.addListener(initServiceWorker);
+  chrome.runtime.onInstalled.addListener(() => {
+    initServiceWorker().catch(() => {});
+  });
 }
 
 // In-memory per-tab stats to display per-page blocked counts accurately
@@ -196,6 +592,11 @@ if (chrome.declarativeNetRequest?.onRuleMatchedDebug) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message !== 'object') {
+    sendResponse({});
+    return false;
+  }
+
   if (message.type === 'GET_TAB_STATS') {
     const targetTabId = message.tabId || sender?.tab?.id;
     const statsForTab = tabStats.get(targetTabId) || { bannersBlocked: 0, videoAdsSkipped: 0, antiAdblockDefused: 0 };
